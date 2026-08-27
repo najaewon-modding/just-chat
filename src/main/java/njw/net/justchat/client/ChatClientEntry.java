@@ -1,5 +1,6 @@
 package njw.net.justchat.client;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.data.SystemChatMessage;
@@ -48,6 +49,14 @@ public record ChatClientEntry(
     public Component displayMessage() {
         if (type == Type.SYSTEM) return systemMessage.content();
         if (type == Type.VANILLA) return vanillaMessage;
+        if (chatMessage.deleted()) {
+            return Component.literal("<" + chatMessage.senderName() + "> ")
+                    .withStyle(ChatFormatting.GRAY)
+                    .append(
+                            Component.translatable("screen.njw_just_chat.deleted_message")
+                                    .withStyle(ChatFormatting.GRAY)
+                    );
+        }
         return Component.literal("<" + chatMessage.senderName() + "> " + chatMessage.content());
     }
 }

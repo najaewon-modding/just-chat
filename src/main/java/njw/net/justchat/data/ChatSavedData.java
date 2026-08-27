@@ -64,6 +64,18 @@ public final class ChatSavedData extends SavedData {
         return message;
     }
 
+    public ChatMessage delete(long messageId, UUID requesterUuid, long now) {
+        for (int i = 0; i < messages.size(); i++) {
+            ChatMessage message = messages.get(i);
+            if (message.id() != messageId || !message.canDelete(requesterUuid, now)) continue;
+            ChatMessage deleted = message.asDeleted();
+            messages.set(i, deleted);
+            setDirty();
+            return deleted;
+        }
+        return null;
+    }
+
     public HistoryBatch getHistoryBefore(long beforeId, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
         int chatIndex = findLastChatBefore(beforeId);

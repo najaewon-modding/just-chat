@@ -17,6 +17,8 @@ public record ChatMessage(
         long createdAt,
         boolean deleted
 ) {
+    public static final long DELETE_WINDOW_MILLIS = 5L * 60L * 1000L;
+
     public static final Codec<ChatMessage> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.LONG.fieldOf("id").forGetter(ChatMessage::id),
             UUIDUtil.CODEC.fieldOf("senderUuid").forGetter(ChatMessage::senderUuid),
@@ -35,4 +37,13 @@ public record ChatMessage(
             ByteBufCodecs.BOOL, ChatMessage::deleted,
             ChatMessage::new
     );
+
+    public boolean canDelete(UUID playerUuid, long now) {
+        long age = now - createdAt;
+        return !deleted && senderUuid.equals(playerUuid) && age >= 0L && age <= DELETE_WINDOW_MILLIS;
+    }
+
+    public ChatMessage asDeleted() {
+        return new ChatMessage(id, senderUuid, senderName, "", createdAt, true);
+    }
 }

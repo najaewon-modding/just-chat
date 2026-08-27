@@ -3,5 +3,7 @@
   "screen.njw_just_chat.message_input": "Message",
   "screen.njw_just_chat.test_notice": "Press Enter to send",
   "screen.njw_just_chat.command_notice": "Close the current screen, then press / to enter a command.",
+  "screen.njw_just_chat.delete": "Delete",
+  "screen.njw_just_chat.deleted_message": "This message has been deleted",
   "config.njw_just_chat.close_chat_after_send": "Close chat after sending"
 }

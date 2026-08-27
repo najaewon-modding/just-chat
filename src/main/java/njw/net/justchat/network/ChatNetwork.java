@@ -21,11 +21,17 @@ public final class ChatNetwork {
         PayloadRegistrar registrar = event.registrar("1");
         registrar.playToServer(SendChatPayload.TYPE, SendChatPayload.STREAM_CODEC, ChatNetwork::handleSendChat);
         registrar.playToServer(
+                DeleteChatPayload.TYPE,
+                DeleteChatPayload.STREAM_CODEC,
+                ChatNetwork::handleDeleteChat
+        );
+        registrar.playToServer(
                 RequestChatHistoryPayload.TYPE,
                 RequestChatHistoryPayload.STREAM_CODEC,
                 ChatNetwork::handleHistoryRequest
         );
         registrar.playToClient(NewChatPayload.TYPE, NewChatPayload.STREAM_CODEC);
+        registrar.playToClient(ChatDeletedPayload.TYPE, ChatDeletedPayload.STREAM_CODEC);
         registrar.playToClient(ChatHistoryPayload.TYPE, ChatHistoryPayload.STREAM_CODEC);
         registrar.playToClient(NewSystemChatPayload.TYPE, NewSystemChatPayload.STREAM_CODEC);
     }
@@ -42,6 +48,14 @@ public final class ChatNetwork {
                 System.currentTimeMillis()
         );
         PacketDistributor.sendToAllPlayers(new NewChatPayload(message));
+    }
+
+    private static void handleDeleteChat(DeleteChatPayload payload, IPayloadContext context) {
+        if (!(context.player() instanceof ServerPlayer player)) return;
+        ChatSavedData data = ChatSavedData.get(player.level().getServer());
+        ChatMessage deleted = data.delete(payload.messageId(), player.getUUID(), System.currentTimeMillis());
+        if (deleted == null) return;
+        PacketDistributor.sendToAllPlayers(new ChatDeletedPayload(deleted));
     }
 
     private static void handleHistoryRequest(RequestChatHistoryPayload payload, IPayloadContext context) {

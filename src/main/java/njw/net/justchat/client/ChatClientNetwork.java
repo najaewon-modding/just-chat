@@ -9,6 +9,7 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import njw.net.justchat.data.ChatMessage;
+import njw.net.justchat.network.ChatDeletedPayload;
 import njw.net.justchat.network.ChatHistoryPayload;
 import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.NewSystemChatPayload;
@@ -20,6 +21,7 @@ public final class ChatClientNetwork {
     @SubscribeEvent
     public static void register(RegisterClientPayloadHandlersEvent event) {
         event.register(NewChatPayload.TYPE, ChatClientNetwork::handleNewChat);
+        event.register(ChatDeletedPayload.TYPE, ChatClientNetwork::handleChatDeleted);
         event.register(ChatHistoryPayload.TYPE, ChatClientNetwork::handleChatHistory);
         event.register(NewSystemChatPayload.TYPE, ChatClientNetwork::handleNewSystemChat);
     }
@@ -37,6 +39,10 @@ public final class ChatClientNetwork {
         String time = ChatTimeFormatter.formatTime(message.createdAt());
         Component line = Component.literal("[" + time + "] <" + message.senderName() + "> " + message.content());
         VanillaChatCapture.runSuppressed(() -> minecraft.player.sendSystemMessage(line));
+    }
+
+    private static void handleChatDeleted(ChatDeletedPayload payload, IPayloadContext context) {
+        ChatClientState.addPlayer(payload.message());
     }
 
     private static void handleChatHistory(ChatHistoryPayload payload, IPayloadContext context) {
