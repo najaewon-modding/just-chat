@@ -12,7 +12,6 @@ import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.network.ChatHistoryPayload;
 import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.NewSystemChatPayload;
-import njw.net.justchat.network.SystemChatHistoryPayload;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
 public final class ChatClientNetwork {
@@ -23,7 +22,6 @@ public final class ChatClientNetwork {
         event.register(NewChatPayload.TYPE, ChatClientNetwork::handleNewChat);
         event.register(ChatHistoryPayload.TYPE, ChatClientNetwork::handleChatHistory);
         event.register(NewSystemChatPayload.TYPE, ChatClientNetwork::handleNewSystemChat);
-        event.register(SystemChatHistoryPayload.TYPE, ChatClientNetwork::handleSystemChatHistory);
     }
 
     @SubscribeEvent
@@ -42,14 +40,14 @@ public final class ChatClientNetwork {
     }
 
     private static void handleChatHistory(ChatHistoryPayload payload, IPayloadContext context) {
-        ChatClientState.mergeHistory(payload.messages());
+        ChatClientState.completeHistory(
+                payload.messages(),
+                payload.systemMessages(),
+                payload.hasMore()
+        );
     }
 
     private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
         ChatClientState.addSystem(payload.message());
-    }
-
-    private static void handleSystemChatHistory(SystemChatHistoryPayload payload, IPayloadContext context) {
-        ChatClientState.mergeSystemHistory(payload.messages());
     }
 }

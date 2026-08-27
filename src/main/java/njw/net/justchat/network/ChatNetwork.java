@@ -28,7 +28,6 @@ public final class ChatNetwork {
         registrar.playToClient(NewChatPayload.TYPE, NewChatPayload.STREAM_CODEC);
         registrar.playToClient(ChatHistoryPayload.TYPE, ChatHistoryPayload.STREAM_CODEC);
         registrar.playToClient(NewSystemChatPayload.TYPE, NewSystemChatPayload.STREAM_CODEC);
-        registrar.playToClient(SystemChatHistoryPayload.TYPE, SystemChatHistoryPayload.STREAM_CODEC);
     }
 
     private static void handleSendChat(SendChatPayload payload, IPayloadContext context) {
@@ -48,13 +47,10 @@ public final class ChatNetwork {
     private static void handleHistoryRequest(RequestChatHistoryPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         ChatSavedData data = ChatSavedData.get(player.level().getServer());
+        ChatSavedData.HistoryBatch history = data.getHistoryBefore(payload.beforeId(), payload.limit());
         PacketDistributor.sendToPlayer(
                 player,
-                new ChatHistoryPayload(data.getBefore(payload.beforeId(), payload.limit()))
-        );
-        PacketDistributor.sendToPlayer(
-                player,
-                new SystemChatHistoryPayload(data.getSystemBefore(payload.beforeId(), payload.limit()))
+                new ChatHistoryPayload(history.messages(), history.systemMessages(), history.hasMore())
         );
     }
 }

@@ -6,18 +6,30 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 import njw.net.justchat.data.ChatMessage;
+import njw.net.justchat.data.SystemChatMessage;
 
 import java.util.List;
 
-public record ChatHistoryPayload(List<ChatMessage> messages) implements CustomPacketPayload {
-    private static final StreamCodec<ByteBuf, List<ChatMessage>> MESSAGE_LIST_CODEC =
+public record ChatHistoryPayload(
+        List<ChatMessage> messages,
+        List<SystemChatMessage> systemMessages,
+        boolean hasMore
+) implements CustomPacketPayload {
+    private static final StreamCodec<ByteBuf, List<ChatMessage>> CHAT_LIST_CODEC =
             ChatMessage.STREAM_CODEC.apply(ByteBufCodecs.list(100));
+    private static final StreamCodec<ByteBuf, List<SystemChatMessage>> SYSTEM_LIST_CODEC =
+            SystemChatMessage.STREAM_CODEC.apply(ByteBufCodecs.list(100));
 
     public static final Type<ChatHistoryPayload> TYPE = new Type<>(
             Identifier.fromNamespaceAndPath("njw_just_chat", "chat_history")
     );
-    public static final StreamCodec<ByteBuf, ChatHistoryPayload> STREAM_CODEC =
-            MESSAGE_LIST_CODEC.map(ChatHistoryPayload::new, ChatHistoryPayload::messages);
+
+    public static final StreamCodec<ByteBuf, ChatHistoryPayload> STREAM_CODEC = StreamCodec.composite(
+            CHAT_LIST_CODEC, ChatHistoryPayload::messages,
+            SYSTEM_LIST_CODEC, ChatHistoryPayload::systemMessages,
+            ByteBufCodecs.BOOL, ChatHistoryPayload::hasMore,
+            ChatHistoryPayload::new
+    );
 
     @Override
     public Type<?> type() {

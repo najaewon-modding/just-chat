@@ -9,40 +9,62 @@ import java.util.Comparator;
 import java.util.List;
 
 public final class ChatClientState {
-    private static final int MAX_ENTRIES = 1000;
     private static final long SYSTEM_MATCH_WINDOW = 10000L;
     private static final List<ChatClientEntry> ENTRIES = new ArrayList<>();
+    private static boolean historyInitialized;
+    private static boolean historyLoading;
+    private static boolean hasOlderHistory = true;
 
     private ChatClientState() {}
 
     public static void addPlayer(ChatMessage message) {
-        int index = findPlayer(message.id());
-        ChatClientEntry entry = ChatClientEntry.player(message);
-        if (index >= 0) ENTRIES.set(index, entry);
-        else ENTRIES.add(entry);
-        sortAndTrim();
+        putPlayer(message);
+        sort();
     }
 
     public static void addSystem(SystemChatMessage message) {
-        int index = findSystem(message.id());
-        ChatClientEntry entry = ChatClientEntry.system(message);
-        if (index >= 0) ENTRIES.set(index, entry);
-        else ENTRIES.add(entry);
-        removeMatchingVanilla(message);
-        sortAndTrim();
+        putSystem(message);
+        sort();
     }
 
     public static void addVanilla(Component message, long receivedAt) {
         ENTRIES.add(ChatClientEntry.vanilla(message.copy(), receivedAt));
-        sortAndTrim();
+        sort();
     }
 
-    public static void mergeHistory(List<ChatMessage> messages) {
-        for (ChatMessage message : messages) addPlayer(message);
+    public static boolean beginInitialHistoryRequest() {
+        if (historyInitialized || historyLoading) return false;
+        historyLoading = true;
+        return true;
     }
 
-    public static void mergeSystemHistory(List<SystemChatMessage> messages) {
-        for (SystemChatMessage message : messages) addSystem(message);
+    public static boolean beginOlderHistoryRequest() {
+        if (!historyInitialized || historyLoading || !hasOlderHistory) return false;
+        if (oldestPersistentId() == Long.MAX_VALUE) return false;
+        historyLoading = true;
+        return true;
+    }
+
+    public static void completeHistory(
+            List<ChatMessage> messages,
+            List<SystemChatMessage> systemMessages,
+            boolean hasMore
+    ) {
+        for (ChatMessage message : messages) putPlayer(message);
+        for (SystemChatMessage message : systemMessages) putSystem(message);
+        historyInitialized = true;
+        historyLoading = false;
+        hasOlderHistory = hasMore;
+        sort();
+    }
+
+    public static long oldestPersistentId() {
+        long oldest = Long.MAX_VALUE;
+        for (ChatClientEntry entry : ENTRIES) {
+            if (entry.isPlayer()) oldest = Math.min(oldest, entry.playerMessageId());
+            if (entry.isSystem()) oldest = Math.min(oldest, entry.systemMessageId());
+        }
+        return oldest;
     }
 
     public static SystemChatMessage findRecentSystem(Component message, long now) {
@@ -66,6 +88,24 @@ public final class ChatClientState {
 
     public static void clear() {
         ENTRIES.clear();
+        historyInitialized = false;
+        historyLoading = false;
+        hasOlderHistory = true;
+    }
+
+    private static void putPlayer(ChatMessage message) {
+        int index = findPlayer(message.id());
+        ChatClientEntry entry = ChatClientEntry.player(message);
+        if (index >= 0) ENTRIES.set(index, entry);
+        else ENTRIES.add(entry);
+    }
+
+    private static void putSystem(SystemChatMessage message) {
+        int index = findSystem(message.id());
+        ChatClientEntry entry = ChatClientEntry.system(message);
+        if (index >= 0) ENTRIES.set(index, entry);
+        else ENTRIES.add(entry);
+        removeMatchingVanilla(message);
     }
 
     private static int findPlayer(long id) {
@@ -94,8 +134,7 @@ public final class ChatClientState {
         return first.getString().equals(second.getString());
     }
 
-    private static void sortAndTrim() {
+    private static void sort() {
         ENTRIES.sort(Comparator.comparingLong(ChatClientEntry::createdAt));
-        while (ENTRIES.size() > MAX_ENTRIES) ENTRIES.removeFirst();
     }
 }

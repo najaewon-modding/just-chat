@@ -9,6 +9,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -63,20 +64,36 @@ public final class ChatSavedData extends SavedData {
         return message;
     }
 
-    public List<ChatMessage> getBefore(long beforeId, int limit) {
+    public HistoryBatch getHistoryBefore(long beforeId, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
-        int end = messages.size();
-        while (end > 0 && messages.get(end - 1).id() >= beforeId) end--;
-        int start = Math.max(0, end - safeLimit);
-        return List.copyOf(messages.subList(start, end));
+        int chatIndex = findLastChatBefore(beforeId);
+        int systemIndex = findLastSystemBefore(beforeId);
+        List<ChatMessage> chats = new ArrayList<>();
+        List<SystemChatMessage> systems = new ArrayList<>();
+
+        for (int count = 0; count < safeLimit && (chatIndex >= 0 || systemIndex >= 0); count++) {
+            boolean takeChat = systemIndex < 0 || chatIndex >= 0
+                    && messages.get(chatIndex).id() > systemMessages.get(systemIndex).id();
+            if (takeChat) chats.add(messages.get(chatIndex--));
+            else systems.add(systemMessages.get(systemIndex--));
+        }
+
+        Collections.reverse(chats);
+        Collections.reverse(systems);
+        boolean hasMore = chatIndex >= 0 || systemIndex >= 0;
+        return new HistoryBatch(List.copyOf(chats), List.copyOf(systems), hasMore);
     }
 
-    public List<SystemChatMessage> getSystemBefore(long beforeId, int limit) {
-        int safeLimit = Math.max(1, Math.min(limit, 100));
-        int end = systemMessages.size();
-        while (end > 0 && systemMessages.get(end - 1).id() >= beforeId) end--;
-        int start = Math.max(0, end - safeLimit);
-        return List.copyOf(systemMessages.subList(start, end));
+    private int findLastChatBefore(long beforeId) {
+        int index = messages.size() - 1;
+        while (index >= 0 && messages.get(index).id() >= beforeId) index--;
+        return index;
+    }
+
+    private int findLastSystemBefore(long beforeId) {
+        int index = systemMessages.size() - 1;
+        while (index >= 0 && systemMessages.get(index).id() >= beforeId) index--;
+        return index;
     }
 
     private static long findNextMessageId(
@@ -88,4 +105,10 @@ public final class ChatSavedData extends SavedData {
         for (SystemChatMessage message : systemMessages) nextId = Math.max(nextId, message.id() + 1L);
         return nextId;
     }
+
+    public record HistoryBatch(
+            List<ChatMessage> messages,
+            List<SystemChatMessage> systemMessages,
+            boolean hasMore
+    ) {}
 }
