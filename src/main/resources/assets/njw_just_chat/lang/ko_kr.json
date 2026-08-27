@@ -8,6 +8,7 @@
   "screen.njw_just_chat.select_item": "태그할 아이템을 선택하세요",
   "screen.njw_just_chat.delete": "삭제",
   "screen.njw_just_chat.deleted_message": "삭제된 메시지입니다",
+  "screen.njw_just_chat.read_boundary": "여기까지 읽음",
   "screen.njw_just_chat.mention_title": "태그 알림",
   "screen.njw_just_chat.mention_message": "%s님이 회원님을 태그했습니다.",
   "screen.njw_just_chat.player_tag_last_seen": "마지막 접속일: %s",

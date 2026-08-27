@@ -8,6 +8,7 @@
   "screen.njw_just_chat.select_item": "Select an item to tag",
   "screen.njw_just_chat.delete": "Delete",
   "screen.njw_just_chat.deleted_message": "This message has been deleted",
+  "screen.njw_just_chat.read_boundary": "Read up to here",
   "screen.njw_just_chat.mention_title": "Mention",
   "screen.njw_just_chat.mention_message": "%s mentioned you.",
   "screen.njw_just_chat.player_tag_last_seen": "Last seen: %s",

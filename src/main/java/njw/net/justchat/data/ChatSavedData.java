@@ -1,53 +1,24 @@
 package njw.net.justchat.data;
 
-import com.mojang.serialization.Codec;
-import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.level.saveddata.SavedData;
-import net.minecraft.world.level.saveddata.SavedDataType;
+import njw.net.justchat.ChatRules;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
-public final class ChatSavedData extends SavedData {
-    private static final Codec<ChatSavedData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-            Codec.LONG.optionalFieldOf("nextMessageId", 1L).forGetter(data -> data.nextMessageId),
-            ChatMessage.CODEC.listOf().optionalFieldOf("messages", List.of()).forGetter(data -> data.messages),
-            SystemChatMessage.CODEC.listOf().optionalFieldOf("systemMessages", List.of())
-                    .forGetter(data -> data.systemMessages)
-    ).apply(instance, ChatSavedData::new));
+public final class ChatSavedData {
+    private final MinecraftServer server;
 
-    public static final SavedDataType<ChatSavedData> TYPE = new SavedDataType<>(
-            Identifier.fromNamespaceAndPath("njw_just_chat", "chat_history"),
-            ChatSavedData::new,
-            CODEC,
-            null
-    );
-
-    private long nextMessageId;
-    private final List<ChatMessage> messages;
-    private final List<SystemChatMessage> systemMessages;
-
-    public ChatSavedData() {
-        this(1L, List.of(), List.of());
-    }
-
-    private ChatSavedData(
-            long nextMessageId,
-            List<ChatMessage> messages,
-            List<SystemChatMessage> systemMessages
-    ) {
-        this.messages = new ArrayList<>(messages);
-        this.systemMessages = new ArrayList<>(systemMessages);
-        this.nextMessageId = Math.max(nextMessageId, findNextMessageId(messages, systemMessages));
+    private ChatSavedData(MinecraftServer server) {
+        this.server = server;
     }
 
     public static ChatSavedData get(MinecraftServer server) {
-        return server.getDataStorage().computeIfAbsent(TYPE);
+        migrateLegacyIfNeeded(server);
+        return new ChatSavedData(server);
     }
 
     public ChatMessage add(
@@ -58,8 +29,12 @@ public final class ChatSavedData extends SavedData {
             List<PlayerTag> playerTags,
             List<ItemTag> itemTags
     ) {
+        ChatIndexSavedData index = ChatIndexSavedData.get(server);
+        ChatIndexSavedData.SegmentInfo segment = getWritableSegment(index, createdAt);
+        long messageId = index.allocateMessageId();
+
         ChatMessage message = new ChatMessage(
-                nextMessageId++,
+                messageId,
                 senderUuid,
                 senderName,
                 content,
@@ -68,70 +43,239 @@ public final class ChatSavedData extends SavedData {
                 playerTags,
                 itemTags
         );
-        messages.add(message);
-        setDirty();
+
+        ChatSegmentSavedData.get(server, segment.segmentId()).add(message);
+        index.recordEntry(segment.segmentId(), messageId);
         return message;
     }
 
     public SystemChatMessage addSystem(Component content, long createdAt) {
-        SystemChatMessage message = new SystemChatMessage(nextMessageId++, content.copy(), createdAt);
-        systemMessages.add(message);
-        setDirty();
+        ChatIndexSavedData index = ChatIndexSavedData.get(server);
+        ChatIndexSavedData.SegmentInfo segment = getWritableSegment(index, createdAt);
+        long messageId = index.allocateMessageId();
+
+        SystemChatMessage message = new SystemChatMessage(
+                messageId,
+                content.copy(),
+                createdAt
+        );
+
+        ChatSegmentSavedData.get(server, segment.segmentId()).addSystem(message);
+        index.recordEntry(segment.segmentId(), messageId);
         return message;
     }
 
     public ChatMessage delete(long messageId, UUID requesterUuid, long now) {
-        for (int i = 0; i < messages.size(); i++) {
-            ChatMessage message = messages.get(i);
-            if (message.id() != messageId || !message.canDelete(requesterUuid, now)) continue;
-            ChatMessage deleted = message.asDeleted();
-            messages.set(i, deleted);
-            setDirty();
-            return deleted;
+        ChatIndexSavedData index = ChatIndexSavedData.get(server);
+        ChatIndexSavedData.SegmentInfo segment = index.findSegmentForMessageId(messageId);
+        if (segment == null) return null;
+
+        return ChatSegmentSavedData.get(server, segment.segmentId()).delete(
+                messageId,
+                requesterUuid,
+                now
+        );
+    }
+
+    public long latestPersistentId() {
+        List<ChatIndexSavedData.SegmentInfo> segments = ChatIndexSavedData.get(server).segments();
+
+        for (int i = segments.size() - 1; i >= 0; i--) {
+            ChatIndexSavedData.SegmentInfo segment = segments.get(i);
+            if (segment.entryCount() > 0) return segment.lastMessageId();
         }
-        return null;
+
+        return 0L;
     }
 
     public HistoryBatch getHistoryBefore(long beforeId, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
-        int chatIndex = findLastChatBefore(beforeId);
-        int systemIndex = findLastSystemBefore(beforeId);
+        ChatIndexSavedData index = ChatIndexSavedData.get(server);
+        List<ChatIndexSavedData.SegmentInfo> segments = index.segments();
+
         List<ChatMessage> chats = new ArrayList<>();
         List<SystemChatMessage> systems = new ArrayList<>();
+        int remaining = safeLimit;
 
-        for (int count = 0; count < safeLimit && (chatIndex >= 0 || systemIndex >= 0); count++) {
-            boolean takeChat = systemIndex < 0 || chatIndex >= 0
-                    && messages.get(chatIndex).id() > systemMessages.get(systemIndex).id();
-            if (takeChat) chats.add(messages.get(chatIndex--));
-            else systems.add(systemMessages.get(systemIndex--));
+        for (int i = segments.size() - 1; i >= 0 && remaining > 0; i--) {
+            ChatIndexSavedData.SegmentInfo info = segments.get(i);
+
+            if (info.entryCount() == 0) continue;
+            if (info.firstMessageId() >= beforeId) continue;
+
+            ChatSegmentSavedData.HistoryBatch batch = ChatSegmentSavedData.get(
+                    server,
+                    info.segmentId()
+            ).getHistoryBefore(
+                    beforeId,
+                    remaining
+            );
+
+            chats.addAll(batch.messages());
+            systems.addAll(batch.systemMessages());
+            remaining -= batch.messages().size();
+            remaining -= batch.systemMessages().size();
         }
 
-        Collections.reverse(chats);
-        Collections.reverse(systems);
-        boolean hasMore = chatIndex >= 0 || systemIndex >= 0;
-        return new HistoryBatch(List.copyOf(chats), List.copyOf(systems), hasMore);
+        chats.sort(Comparator.comparingLong(ChatMessage::id));
+        systems.sort(Comparator.comparingLong(SystemChatMessage::id));
+
+        long oldestReturnedId = findOldestId(chats, systems);
+        boolean hasMore = oldestReturnedId != Long.MAX_VALUE
+                && index.hasEntryBefore(oldestReturnedId);
+
+        return new HistoryBatch(
+                List.copyOf(chats),
+                List.copyOf(systems),
+                hasMore
+        );
     }
 
-    private int findLastChatBefore(long beforeId) {
-        int index = messages.size() - 1;
-        while (index >= 0 && messages.get(index).id() >= beforeId) index--;
-        return index;
+    public HistoryBatch getHistoryAfter(long afterId, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        ChatIndexSavedData index = ChatIndexSavedData.get(server);
+        List<ChatIndexSavedData.SegmentInfo> segments = index.segments();
+
+        List<ChatMessage> chats = new ArrayList<>();
+        List<SystemChatMessage> systems = new ArrayList<>();
+        int remaining = safeLimit;
+
+        for (ChatIndexSavedData.SegmentInfo info : segments) {
+            if (remaining <= 0) break;
+            if (info.entryCount() == 0) continue;
+            if (info.lastMessageId() <= afterId) continue;
+
+            ChatSegmentSavedData.HistoryBatch batch = ChatSegmentSavedData.get(
+                    server,
+                    info.segmentId()
+            ).getHistoryAfter(
+                    afterId,
+                    remaining
+            );
+
+            chats.addAll(batch.messages());
+            systems.addAll(batch.systemMessages());
+            remaining -= batch.messages().size();
+            remaining -= batch.systemMessages().size();
+        }
+
+        chats.sort(Comparator.comparingLong(ChatMessage::id));
+        systems.sort(Comparator.comparingLong(SystemChatMessage::id));
+
+        long newestReturnedId = findNewestId(chats, systems);
+        boolean hasMore = newestReturnedId != Long.MIN_VALUE
+                && index.hasEntryAfter(newestReturnedId);
+
+        return new HistoryBatch(
+                List.copyOf(chats),
+                List.copyOf(systems),
+                hasMore
+        );
     }
 
-    private int findLastSystemBefore(long beforeId) {
-        int index = systemMessages.size() - 1;
-        while (index >= 0 && systemMessages.get(index).id() >= beforeId) index--;
-        return index;
-    }
-
-    private static long findNextMessageId(
-            List<ChatMessage> messages,
-            List<SystemChatMessage> systemMessages
+    private static ChatIndexSavedData.SegmentInfo getWritableSegment(
+            ChatIndexSavedData index,
+            long createdAt
     ) {
-        long nextId = 1L;
-        for (ChatMessage message : messages) nextId = Math.max(nextId, message.id() + 1L);
-        for (SystemChatMessage message : systemMessages) nextId = Math.max(nextId, message.id() + 1L);
-        return nextId;
+        ChatIndexSavedData.SegmentInfo active = index.activeSegment();
+
+        if (active == null || shouldRollOver(active, createdAt)) {
+            return index.createSegment(createdAt);
+        }
+
+        return active;
+    }
+
+    private static boolean shouldRollOver(
+            ChatIndexSavedData.SegmentInfo segment,
+            long createdAt
+    ) {
+        if (segment.entryCount() >= ChatRules.MAX_PERSISTENT_ENTRIES_PER_SEGMENT) {
+            return true;
+        }
+
+        return createdAt - segment.startedAt() >= ChatRules.CHAT_SEGMENT_DURATION_MILLIS;
+    }
+
+    private static long findOldestId(
+            List<ChatMessage> chats,
+            List<SystemChatMessage> systems
+    ) {
+        long oldest = Long.MAX_VALUE;
+
+        for (ChatMessage message : chats) {
+            oldest = Math.min(oldest, message.id());
+        }
+
+        for (SystemChatMessage message : systems) {
+            oldest = Math.min(oldest, message.id());
+        }
+
+        return oldest;
+    }
+
+    private static long findNewestId(
+            List<ChatMessage> chats,
+            List<SystemChatMessage> systems
+    ) {
+        long newest = Long.MIN_VALUE;
+
+        for (ChatMessage message : chats) {
+            newest = Math.max(newest, message.id());
+        }
+
+        for (SystemChatMessage message : systems) {
+            newest = Math.max(newest, message.id());
+        }
+
+        return newest;
+    }
+
+    private static synchronized void migrateLegacyIfNeeded(MinecraftServer server) {
+        ChatIndexSavedData index = ChatIndexSavedData.get(server);
+        if (index.legacyMigrationDone()) return;
+
+        LegacyChatSavedData legacy = LegacyChatSavedData.get(server);
+
+        if (!legacy.isEmpty()) {
+            List<LegacyEntry> entries = new ArrayList<>();
+
+            for (ChatMessage message : legacy.messages()) {
+                entries.add(LegacyEntry.player(message));
+            }
+
+            for (SystemChatMessage message : legacy.systemMessages()) {
+                entries.add(LegacyEntry.system(message));
+            }
+
+            entries.sort(Comparator.comparingLong(LegacyEntry::id));
+
+            for (LegacyEntry entry : entries) {
+                if (index.containsMessageId(entry.id())) continue;
+
+                ChatIndexSavedData.SegmentInfo segment = getWritableSegment(
+                        index,
+                        entry.createdAt()
+                );
+
+                ChatSegmentSavedData data = ChatSegmentSavedData.get(
+                        server,
+                        segment.segmentId()
+                );
+
+                if (entry.chatMessage() != null) {
+                    data.add(entry.chatMessage());
+                } else {
+                    data.addSystem(entry.systemMessage());
+                }
+
+                index.recordEntry(segment.segmentId(), entry.id());
+            }
+
+            index.ensureNextMessageIdAtLeast(legacy.nextMessageId());
+        }
+
+        index.markLegacyMigrationDone();
     }
 
     public record HistoryBatch(
@@ -139,4 +283,29 @@ public final class ChatSavedData extends SavedData {
             List<SystemChatMessage> systemMessages,
             boolean hasMore
     ) {}
+
+    private record LegacyEntry(
+            long id,
+            long createdAt,
+            ChatMessage chatMessage,
+            SystemChatMessage systemMessage
+    ) {
+        private static LegacyEntry player(ChatMessage message) {
+            return new LegacyEntry(
+                    message.id(),
+                    message.createdAt(),
+                    message,
+                    null
+            );
+        }
+
+        private static LegacyEntry system(SystemChatMessage message) {
+            return new LegacyEntry(
+                    message.id(),
+                    message.createdAt(),
+                    null,
+                    message
+            );
+        }
+    }
 }

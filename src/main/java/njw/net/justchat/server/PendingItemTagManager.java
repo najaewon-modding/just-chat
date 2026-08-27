@@ -7,13 +7,17 @@ import net.minecraft.world.item.ItemStackTemplate;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import njw.net.justchat.ChatRules;
 import njw.net.justchat.data.ItemTag;
 import njw.net.justchat.network.ItemTagReference;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @EventBusSubscriber(modid = "njw_just_chat")
@@ -26,6 +30,7 @@ public final class PendingItemTagManager {
     public static CreatedItem create(ServerPlayer player, int inventorySlot) {
         Inventory inventory = player.getInventory();
         if (inventorySlot < 0 || inventorySlot >= inventory.getContainerSize()) return null;
+
         ItemStack stack = inventory.getItem(inventorySlot);
         if (stack.isEmpty()) return null;
 
@@ -34,7 +39,12 @@ public final class PendingItemTagManager {
                 player.getUUID(),
                 uuid -> new HashMap<>()
         );
+
         cleanup(items, now);
+
+        while (items.size() >= ChatRules.MAX_PENDING_ITEM_TAGS) {
+            removeOldest(items);
+        }
 
         UUID token = UUID.randomUUID();
         ItemStackTemplate item = ItemStackTemplate.fromNonEmptyStack(stack);
@@ -47,25 +57,48 @@ public final class PendingItemTagManager {
             String content,
             List<ItemTagReference> references
     ) {
+        if (references.isEmpty()) return List.of();
+
+        if (references.size() > ChatRules.MAX_ITEM_TAGS_PER_MESSAGE) {
+            return List.of();
+        }
+
         Map<UUID, PendingItem> items = PENDING.get(player.getUUID());
         if (items == null || items.isEmpty()) return List.of();
 
         long now = System.currentTimeMillis();
         cleanup(items, now);
+
+        if (items.isEmpty()) {
+            PENDING.remove(player.getUUID());
+            return List.of();
+        }
+
+        List<ItemTagReference> sorted = new ArrayList<>(references);
+        sorted.sort(Comparator.comparingInt(ItemTagReference::start));
+
         List<ItemTag> tags = new ArrayList<>();
-        int cursor = 0;
+        Set<UUID> usedTokens = new HashSet<>();
+        int previousEnd = -1;
 
-        for (ItemTagReference reference : references) {
+        for (ItemTagReference reference : sorted) {
+            if (!validReference(content, reference)) continue;
+            if (reference.start() < previousEnd) continue;
+            if (!usedTokens.add(reference.token())) continue;
+
             PendingItem pending = items.get(reference.token());
-            if (pending == null || reference.displayText().isEmpty()) continue;
+            if (pending == null) continue;
 
-            int start = content.indexOf(reference.displayText(), cursor);
-            if (start < 0) continue;
+            tags.add(new ItemTag(
+                    reference.start(),
+                    reference.end(),
+                    pending.item()
+            ));
 
-            int end = start + reference.displayText().length();
-            tags.add(new ItemTag(start, end, pending.item()));
             items.remove(reference.token());
-            cursor = end;
+            previousEnd = reference.end();
+
+            if (tags.size() >= ChatRules.MAX_ITEM_TAGS_PER_MESSAGE) break;
         }
 
         if (items.isEmpty()) PENDING.remove(player.getUUID());
@@ -79,8 +112,36 @@ public final class PendingItemTagManager {
         }
     }
 
+    private static boolean validReference(
+            String content,
+            ItemTagReference reference
+    ) {
+        int start = reference.start();
+        int end = reference.end();
+
+        if (reference.displayText().isEmpty()) return false;
+        if (start < 0 || start >= end || end > content.length()) return false;
+
+        return content.substring(start, end).equals(reference.displayText());
+    }
+
     private static void cleanup(Map<UUID, PendingItem> items, long now) {
-        items.entrySet().removeIf(entry -> now - entry.getValue().createdAt() > EXPIRY_MILLIS);
+        items.entrySet().removeIf(
+                entry -> now - entry.getValue().createdAt() > EXPIRY_MILLIS
+        );
+    }
+
+    private static void removeOldest(Map<UUID, PendingItem> items) {
+        UUID oldestToken = null;
+        long oldestTime = Long.MAX_VALUE;
+
+        for (Map.Entry<UUID, PendingItem> entry : items.entrySet()) {
+            if (entry.getValue().createdAt() >= oldestTime) continue;
+            oldestTime = entry.getValue().createdAt();
+            oldestToken = entry.getKey();
+        }
+
+        if (oldestToken != null) items.remove(oldestToken);
     }
 
     public record CreatedItem(UUID token, ItemStackTemplate item) {}

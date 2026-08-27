@@ -5,6 +5,7 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
+import njw.net.justchat.ChatRules;
 
 import java.util.List;
 
@@ -13,7 +14,9 @@ public record SendChatPayload(
         List<ItemTagReference> itemTags
 ) implements CustomPacketPayload {
     private static final StreamCodec<ByteBuf, List<ItemTagReference>> ITEM_TAG_LIST_CODEC =
-            ItemTagReference.STREAM_CODEC.apply(ByteBufCodecs.list(16));
+            ItemTagReference.STREAM_CODEC.apply(
+                    ByteBufCodecs.list(ChatRules.MAX_ITEM_TAGS_PER_MESSAGE)
+            );
 
     public static final Type<SendChatPayload> TYPE = new Type<>(
             Identifier.fromNamespaceAndPath("njw_just_chat", "send_chat")
