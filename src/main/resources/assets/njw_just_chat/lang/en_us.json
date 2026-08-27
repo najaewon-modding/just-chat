@@ -13,6 +13,7 @@
   "screen.njw_just_chat.player_tag_last_seen": "Last seen: %s",
   "screen.njw_just_chat.player_tag_online": "Online",
   "screen.njw_just_chat.player_tag_last_seen_now": "Just now",
+  "screen.njw_just_chat.player_tag_last_seen_minutes": "%s minutes ago",
   "screen.njw_just_chat.player_tag_last_seen_hours": "%s hours ago",
   "screen.njw_just_chat.player_tag_last_seen_loading": "Loading...",
   "screen.njw_just_chat.player_tag_last_seen_unknown": "Unknown",

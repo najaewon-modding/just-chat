@@ -13,6 +13,7 @@
   "screen.njw_just_chat.player_tag_last_seen": "마지막 접속일: %s",
   "screen.njw_just_chat.player_tag_online": "접속 중",
   "screen.njw_just_chat.player_tag_last_seen_now": "방금 전",
+  "screen.njw_just_chat.player_tag_last_seen_minutes": "%s분 전",
   "screen.njw_just_chat.player_tag_last_seen_hours": "%s시간 전",
   "screen.njw_just_chat.player_tag_last_seen_loading": "불러오는 중...",
   "screen.njw_just_chat.player_tag_last_seen_unknown": "알 수 없음",
