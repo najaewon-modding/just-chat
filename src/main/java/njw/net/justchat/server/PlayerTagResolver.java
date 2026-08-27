@@ -3,6 +3,7 @@ package njw.net.justchat.server;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.common.UsernameCache;
+import njw.net.justchat.data.ItemTag;
 import njw.net.justchat.data.PlayerTag;
 
 import java.util.ArrayList;
@@ -21,10 +22,16 @@ public final class PlayerTagResolver {
 
     private PlayerTagResolver() {}
 
-    public static List<PlayerTag> resolve(MinecraftServer server, String content) {
+    public static List<PlayerTag> resolve(
+            MinecraftServer server,
+            String content,
+            List<ItemTag> itemTags
+    ) {
         List<PlayerTag> tags = new ArrayList<>();
         Matcher matcher = PATTERN.matcher(content);
+
         while (matcher.find()) {
+            if (overlapsItemTag(matcher.start(), matcher.end(), itemTags)) continue;
             ResolvedPlayer target = resolvePlayer(server, matcher.group(1));
             if (target == null) continue;
             tags.add(new PlayerTag(
@@ -34,6 +41,7 @@ public final class PlayerTagResolver {
                     target.name()
             ));
         }
+
         return List.copyOf(tags);
     }
 
@@ -59,11 +67,16 @@ public final class PlayerTagResolver {
                 .toList();
     }
 
+    private static boolean overlapsItemTag(int start, int end, List<ItemTag> itemTags) {
+        for (ItemTag tag : itemTags) {
+            if (start < tag.end() && end > tag.start()) return true;
+        }
+        return false;
+    }
+
     private static ResolvedPlayer resolvePlayer(MinecraftServer server, String name) {
         ServerPlayer online = server.getPlayerList().getPlayerByName(name);
-        if (online != null) {
-            return new ResolvedPlayer(online.getUUID(), online.getName().getString());
-        }
+        if (online != null) return new ResolvedPlayer(online.getUUID(), online.getName().getString());
 
         for (Map.Entry<UUID, String> entry : UsernameCache.getMap().entrySet()) {
             String cachedName = entry.getValue();

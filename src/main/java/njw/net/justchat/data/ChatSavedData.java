@@ -55,7 +55,8 @@ public final class ChatSavedData extends SavedData {
             String senderName,
             String content,
             long createdAt,
-            List<PlayerTag> playerTags
+            List<PlayerTag> playerTags,
+            List<ItemTag> itemTags
     ) {
         ChatMessage message = new ChatMessage(
                 nextMessageId++,
@@ -64,7 +65,8 @@ public final class ChatSavedData extends SavedData {
                 content,
                 createdAt,
                 false,
-                playerTags
+                playerTags,
+                itemTags
         );
         messages.add(message);
         setDirty();

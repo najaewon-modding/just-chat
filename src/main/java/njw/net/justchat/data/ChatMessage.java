@@ -4,6 +4,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 
@@ -17,7 +18,8 @@ public record ChatMessage(
         String content,
         long createdAt,
         boolean deleted,
-        List<PlayerTag> playerTags
+        List<PlayerTag> playerTags,
+        List<ItemTag> itemTags
 ) {
     public static final long DELETE_WINDOW_MILLIS = 5L * 60L * 1000L;
 
@@ -28,13 +30,17 @@ public record ChatMessage(
             Codec.STRING.fieldOf("content").forGetter(ChatMessage::content),
             Codec.LONG.fieldOf("createdAt").forGetter(ChatMessage::createdAt),
             Codec.BOOL.optionalFieldOf("deleted", false).forGetter(ChatMessage::deleted),
-            PlayerTag.CODEC.listOf().optionalFieldOf("playerTags", List.of()).forGetter(ChatMessage::playerTags)
+            PlayerTag.CODEC.listOf().optionalFieldOf("playerTags", List.of()).forGetter(ChatMessage::playerTags),
+            ItemTag.CODEC.listOf().optionalFieldOf("itemTags", List.of()).forGetter(ChatMessage::itemTags)
     ).apply(instance, ChatMessage::new));
 
     private static final StreamCodec<ByteBuf, List<PlayerTag>> PLAYER_TAG_LIST_CODEC =
             PlayerTag.STREAM_CODEC.apply(ByteBufCodecs.list(128));
 
-    public static final StreamCodec<ByteBuf, ChatMessage> STREAM_CODEC = StreamCodec.composite(
+    private static final StreamCodec<RegistryFriendlyByteBuf, List<ItemTag>> ITEM_TAG_LIST_CODEC =
+            ItemTag.STREAM_CODEC.apply(ByteBufCodecs.list(16));
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ChatMessage> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_LONG, ChatMessage::id,
             UUIDUtil.STREAM_CODEC, ChatMessage::senderUuid,
             ByteBufCodecs.STRING_UTF8, ChatMessage::senderName,
@@ -42,6 +48,7 @@ public record ChatMessage(
             ByteBufCodecs.VAR_LONG, ChatMessage::createdAt,
             ByteBufCodecs.BOOL, ChatMessage::deleted,
             PLAYER_TAG_LIST_CODEC, ChatMessage::playerTags,
+            ITEM_TAG_LIST_CODEC, ChatMessage::itemTags,
             ChatMessage::new
     );
 
@@ -51,6 +58,6 @@ public record ChatMessage(
     }
 
     public ChatMessage asDeleted() {
-        return new ChatMessage(id, senderUuid, senderName, "", createdAt, true, List.of());
+        return new ChatMessage(id, senderUuid, senderName, "", createdAt, true, List.of(), List.of());
     }
 }

@@ -19,9 +19,8 @@ public final class VanillaChatCapture {
         if (suppressionDepth > 0 || event.isOverlay()) return;
         long receivedAt = System.currentTimeMillis();
         SystemChatMessage system = ChatClientState.findRecentSystem(event.getMessage(), receivedAt);
-        long createdAt = system == null ? receivedAt : system.createdAt();
-        if (system == null) ChatClientState.addVanilla(event.getMessage(), receivedAt);
-        handleDisplay(event, createdAt);
+        if (system == null) return;
+        handleDisplay(event, system.createdAt());
     }
 
     @SubscribeEvent

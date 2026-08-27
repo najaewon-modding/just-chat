@@ -5,9 +5,14 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import njw.net.justchat.data.ChatMessage;
+import njw.net.justchat.data.ItemTag;
 import njw.net.justchat.data.PlayerPresence;
 import njw.net.justchat.data.PlayerTag;
 import njw.net.justchat.data.SystemChatMessage;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 public record ChatClientEntry(
         Type type,
@@ -16,7 +21,6 @@ public record ChatClientEntry(
         Component vanillaMessage,
         long createdAt
 ) {
-    private static final int PLAYER_TAG_COLOR = 0x55AAFF;
     private static final long ONE_HOUR = 60L * 60L * 1000L;
     private static final long ONE_DAY = 24L * ONE_HOUR;
 
@@ -57,6 +61,7 @@ public record ChatClientEntry(
     public Component displayMessage() {
         if (type == Type.SYSTEM) return systemMessage.content();
         if (type == Type.VANILLA) return vanillaMessage;
+
         if (chatMessage.deleted()) {
             return Component.literal("<" + chatMessage.senderName() + "> ")
                     .withStyle(ChatFormatting.GRAY)
@@ -65,25 +70,41 @@ public record ChatClientEntry(
                                     .withStyle(ChatFormatting.GRAY)
                     );
         }
+
         return createPlayerMessage();
     }
 
     private Component createPlayerMessage() {
         String content = chatMessage.content();
         MutableComponent result = Component.literal("<" + chatMessage.senderName() + "> ");
-        int cursor = 0;
+        List<MessageSpan> spans = new ArrayList<>();
 
         for (PlayerTag tag : chatMessage.playerTags()) {
-            int start = tag.start();
-            int end = tag.end();
-            if (start < cursor || start < 0 || end > content.length() || start >= end) continue;
-            if (cursor < start) result.append(Component.literal(content.substring(cursor, start)));
-            Component hover = createPlayerTagHover(tag);
-            MutableComponent tagged = Component.literal(content.substring(start, end)).withStyle(style ->
-                    style.withColor(PLAYER_TAG_COLOR).withHoverEvent(new HoverEvent.ShowText(hover))
+            if (!validSpan(tag.start(), tag.end(), content.length())) continue;
+            Component text = Component.literal(content.substring(tag.start(), tag.end())).withStyle(style ->
+                    style.withColor(ChatStyle.TAG_COLOR)
+                            .withHoverEvent(new HoverEvent.ShowText(createPlayerTagHover(tag)))
             );
-            result.append(tagged);
-            cursor = end;
+            spans.add(new MessageSpan(tag.start(), tag.end(), text));
+        }
+
+        for (ItemTag tag : chatMessage.itemTags()) {
+            if (!validSpan(tag.start(), tag.end(), content.length())) continue;
+            Component text = Component.literal(content.substring(tag.start(), tag.end())).withStyle(style ->
+                    style.withColor(ChatStyle.TAG_COLOR)
+                            .withHoverEvent(new HoverEvent.ShowItem(tag.item()))
+            );
+            spans.add(new MessageSpan(tag.start(), tag.end(), text));
+        }
+
+        spans.sort(Comparator.comparingInt(MessageSpan::start));
+        int cursor = 0;
+
+        for (MessageSpan span : spans) {
+            if (span.start() < cursor) continue;
+            if (cursor < span.start()) result.append(Component.literal(content.substring(cursor, span.start())));
+            result.append(span.component());
+            cursor = span.end();
         }
 
         if (cursor < content.length()) result.append(Component.literal(content.substring(cursor)));
@@ -92,8 +113,18 @@ public record ChatClientEntry(
 
     private Component createPlayerTagHover(PlayerTag tag) {
         MutableComponent hover = Component.literal(tag.targetName());
+        PlayerPresence presence = PlayerPresenceClientState.get(tag.targetUuid());
         hover.append("\n");
-        Component lastSeen = createLastSeenText(PlayerPresenceClientState.get(tag.targetUuid()));
+
+        if (presence != null && presence.online()) {
+            hover.append(
+                    Component.translatable("screen.njw_just_chat.player_tag_online")
+                            .withStyle(ChatFormatting.GRAY)
+            );
+            return hover;
+        }
+
+        Component lastSeen = createLastSeenText(presence);
         hover.append(
                 Component.translatable("screen.njw_just_chat.player_tag_last_seen", lastSeen)
                         .withStyle(ChatFormatting.GRAY)
@@ -105,21 +136,28 @@ public record ChatClientEntry(
         if (presence == null) {
             return Component.translatable("screen.njw_just_chat.player_tag_last_seen_loading");
         }
-        if (presence.online()) {
-            return Component.translatable("screen.njw_just_chat.player_tag_online");
-        }
+
         if (presence.lastSeenAt() <= 0L) {
             return Component.translatable("screen.njw_just_chat.player_tag_last_seen_unknown");
         }
 
         long age = Math.max(0L, System.currentTimeMillis() - presence.lastSeenAt());
+
         if (age < ONE_HOUR) {
             return Component.translatable("screen.njw_just_chat.player_tag_last_seen_now");
         }
+
         if (age < ONE_DAY) {
             long hours = Math.max(1L, age / ONE_HOUR);
             return Component.translatable("screen.njw_just_chat.player_tag_last_seen_hours", hours);
         }
+
         return Component.literal(ChatTimeFormatter.formatDate(presence.lastSeenAt()));
     }
+
+    private boolean validSpan(int start, int end, int contentLength) {
+        return start >= 0 && start < end && end <= contentLength;
+    }
+
+    private record MessageSpan(int start, int end, Component component) {}
 }

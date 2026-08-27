@@ -11,6 +11,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.network.ChatDeletedPayload;
 import njw.net.justchat.network.ChatHistoryPayload;
+import njw.net.justchat.network.ItemTagCreatedPayload;
 import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.NewSystemChatPayload;
 import njw.net.justchat.network.PlayerPresencePayload;
@@ -28,6 +29,7 @@ public final class ChatClientNetwork {
         event.register(NewSystemChatPayload.TYPE, ChatClientNetwork::handleNewSystemChat);
         event.register(PlayerSuggestionsPayload.TYPE, ChatClientNetwork::handlePlayerSuggestions);
         event.register(PlayerPresencePayload.TYPE, ChatClientNetwork::handlePlayerPresence);
+        event.register(ItemTagCreatedPayload.TYPE, ChatClientNetwork::handleItemTagCreated);
     }
 
     @SubscribeEvent
@@ -75,5 +77,12 @@ public final class ChatClientNetwork {
 
     private static void handlePlayerPresence(PlayerPresencePayload payload, IPayloadContext context) {
         PlayerPresenceClientState.updateAll(payload.players());
+    }
+
+    private static void handleItemTagCreated(ItemTagCreatedPayload payload, IPayloadContext context) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.screen instanceof CustomChatScreen screen) {
+            screen.insertItemTag(payload.requestId(), payload.token(), payload.item());
+        }
     }
 }

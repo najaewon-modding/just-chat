@@ -1,6 +1,6 @@
 package njw.net.justchat.network;
 
-import io.netty.buffer.ByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
@@ -10,7 +10,8 @@ public record ChatDeletedPayload(ChatMessage message) implements CustomPacketPay
     public static final Type<ChatDeletedPayload> TYPE = new Type<>(
             Identifier.fromNamespaceAndPath("njw_just_chat", "chat_deleted")
     );
-    public static final StreamCodec<ByteBuf, ChatDeletedPayload> STREAM_CODEC =
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ChatDeletedPayload> STREAM_CODEC =
             ChatMessage.STREAM_CODEC.map(ChatDeletedPayload::new, ChatDeletedPayload::message);
 
     @Override
