@@ -13,12 +13,18 @@ import njw.net.justchat.config.ClientConfig;
 import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.network.DeleteChatPayload;
 import njw.net.justchat.network.RequestChatHistoryPayload;
+import njw.net.justchat.network.RequestPlayerSuggestionsPayload;
 import njw.net.justchat.network.SendChatPayload;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class CustomChatScreen extends Screen {
+    private static final Pattern PLAYER_TAG_PATTERN =
+            Pattern.compile("(?<![A-Za-z0-9_])@([A-Za-z0-9_]{0,16})$");
     private static final int INPUT_HEIGHT = 20;
     private static final int INPUT_SIDE_MARGIN = 8;
     private static final int INPUT_BOTTOM_MARGIN = 8;
@@ -29,9 +35,15 @@ public final class CustomChatScreen extends Screen {
     private static final int MESSAGE_BOTTOM_OFFSET = 58;
     private static final int SCROLL_LINES = 3;
     private static final int DELETE_RIGHT_MARGIN = 8;
+    private static final int SUGGESTION_ROW_HEIGHT = 12;
+    private static final int SUGGESTION_PADDING = 4;
+    private static final int SUGGESTION_MIN_WIDTH = 100;
     private EditBox messageInput;
     private boolean commandWarning;
     private int scrollOffset;
+    private List<String> playerSuggestions = List.of();
+    private String requestedSuggestionQuery;
+    private int selectedSuggestion;
 
     public CustomChatScreen() {
         super(Component.translatable("screen.njw_just_chat.title"));
@@ -51,7 +63,7 @@ public final class CustomChatScreen extends Screen {
                 Component.translatable("screen.njw_just_chat.message_input")
         );
         this.messageInput.setMaxLength(MAX_MESSAGE_LENGTH);
-        this.messageInput.setResponder(value -> this.commandWarning = value.trim().startsWith("/"));
+        this.messageInput.setResponder(this::onInputChanged);
         this.addRenderableWidget(this.messageInput);
         this.setInitialFocus(this.messageInput);
         if (ChatClientState.beginInitialHistoryRequest()) {
@@ -61,23 +73,50 @@ public final class CustomChatScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (!playerSuggestions.isEmpty()) {
+            if (event.key() == GLFW.GLFW_KEY_UP) {
+                selectedSuggestion = Math.floorMod(selectedSuggestion - 1, playerSuggestions.size());
+                return true;
+            }
+            if (event.key() == GLFW.GLFW_KEY_DOWN) {
+                selectedSuggestion = (selectedSuggestion + 1) % playerSuggestions.size();
+                return true;
+            }
+            if (event.key() == GLFW.GLFW_KEY_TAB) {
+                applySuggestion(selectedSuggestion);
+                return true;
+            }
+        }
+
         if (event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER) {
             sendMessage();
             return true;
         }
-        return super.keyPressed(event);
+
+        boolean handled = super.keyPressed(event);
+        refreshSuggestions();
+        return handled;
     }
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            int suggestion = findSuggestionAt(event.x(), event.y());
+            if (suggestion >= 0) {
+                applySuggestion(suggestion);
+                return true;
+            }
+
             ChatMessage message = findDeleteTarget(event.x(), event.y());
             if (message != null) {
                 ClientPacketDistributor.sendToServer(new DeleteChatPayload(message.id()));
                 return true;
             }
         }
-        return super.mouseClicked(event, doubleClick);
+
+        boolean handled = super.mouseClicked(event, doubleClick);
+        refreshSuggestions();
+        return handled;
     }
 
     @Override
@@ -91,12 +130,72 @@ public final class CustomChatScreen extends Screen {
         return true;
     }
 
+    public void updatePlayerSuggestions(String query, List<String> names) {
+        TagQuery active = getActiveTagQuery();
+        if (active == null || !active.query().equalsIgnoreCase(query)) return;
+        playerSuggestions = List.copyOf(names);
+        selectedSuggestion = 0;
+    }
+
+    private void onInputChanged(String value) {
+        commandWarning = value.trim().startsWith("/");
+        refreshSuggestions();
+    }
+
+    private void refreshSuggestions() {
+        TagQuery active = getActiveTagQuery();
+        if (active == null) {
+            clearSuggestions();
+            return;
+        }
+
+        if (active.query().equals(requestedSuggestionQuery)) return;
+        requestedSuggestionQuery = active.query();
+        playerSuggestions = List.of();
+        selectedSuggestion = 0;
+        ClientPacketDistributor.sendToServer(new RequestPlayerSuggestionsPayload(active.query()));
+    }
+
+    private TagQuery getActiveTagQuery() {
+        if (messageInput == null) return null;
+        int cursor = messageInput.getCursorPosition();
+        String value = messageInput.getValue();
+        if (cursor < 0 || cursor > value.length()) return null;
+        Matcher matcher = PLAYER_TAG_PATTERN.matcher(value.substring(0, cursor));
+        if (!matcher.find()) return null;
+        return new TagQuery(matcher.start(1) - 1, matcher.group(1));
+    }
+
+    private void applySuggestion(int index) {
+        if (index < 0 || index >= playerSuggestions.size()) return;
+        TagQuery active = getActiveTagQuery();
+        if (active == null) return;
+
+        String value = messageInput.getValue();
+        int cursor = messageInput.getCursorPosition();
+        String replacement = "@" + playerSuggestions.get(index) + " ";
+        String newValue = value.substring(0, active.start()) + replacement + value.substring(cursor);
+        int newCursor = active.start() + replacement.length();
+
+        messageInput.setValue(newValue);
+        messageInput.setCursorPosition(newCursor);
+        messageInput.setHighlightPos(newCursor);
+        clearSuggestions();
+    }
+
+    private void clearSuggestions() {
+        playerSuggestions = List.of();
+        requestedSuggestionQuery = null;
+        selectedSuggestion = 0;
+    }
+
     private void sendMessage() {
         if (this.messageInput == null) return;
         String content = this.messageInput.getValue().trim();
         if (content.isEmpty() || content.startsWith("/")) return;
         ClientPacketDistributor.sendToServer(new SendChatPayload(content));
         this.messageInput.setValue("");
+        clearSuggestions();
         if (ClientConfig.CLOSE_CHAT_AFTER_SEND.get() && this.minecraft != null) {
             this.minecraft.setScreen(null);
         }
@@ -131,6 +230,7 @@ public final class CustomChatScreen extends Screen {
                 : Component.translatable("screen.njw_just_chat.test_notice");
         int color = this.commandWarning ? 0xFFFFAA00 : 0xFFAAAAAA;
         graphics.text(this.font, notice, 8, this.height - 42, color, false);
+        renderSuggestions(graphics);
     }
 
     private void renderMessages(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -166,6 +266,46 @@ public final class CustomChatScreen extends Screen {
         }
     }
 
+    private void renderSuggestions(GuiGraphicsExtractor graphics) {
+        if (playerSuggestions.isEmpty()) return;
+        int inputY = this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
+        int width = getSuggestionBoxWidth();
+        int height = playerSuggestions.size() * SUGGESTION_ROW_HEIGHT;
+        int top = inputY - SUGGESTION_PADDING - height;
+        int left = INPUT_SIDE_MARGIN;
+
+        graphics.fill(left, top, left + width, top + height, 0xE0101010);
+
+        for (int i = 0; i < playerSuggestions.size(); i++) {
+            int y = top + i * SUGGESTION_ROW_HEIGHT;
+            if (i == selectedSuggestion) {
+                graphics.fill(left, y, left + width, y + SUGGESTION_ROW_HEIGHT, 0xA0505050);
+            }
+            graphics.text(this.font, "@" + playerSuggestions.get(i), left + 4, y + 2, 0xFFFFFFFF, false);
+        }
+    }
+
+    private int findSuggestionAt(double mouseX, double mouseY) {
+        if (playerSuggestions.isEmpty()) return -1;
+        int inputY = this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
+        int width = getSuggestionBoxWidth();
+        int height = playerSuggestions.size() * SUGGESTION_ROW_HEIGHT;
+        int top = inputY - SUGGESTION_PADDING - height;
+        int left = INPUT_SIDE_MARGIN;
+
+        if (mouseX < left || mouseX >= left + width || mouseY < top || mouseY >= top + height) return -1;
+        int index = (int) ((mouseY - top) / SUGGESTION_ROW_HEIGHT);
+        return index >= 0 && index < playerSuggestions.size() ? index : -1;
+    }
+
+    private int getSuggestionBoxWidth() {
+        int width = SUGGESTION_MIN_WIDTH;
+        for (String name : playerSuggestions) {
+            width = Math.max(width, this.font.width("@" + name) + 8);
+        }
+        return Math.min(width, this.width - INPUT_SIDE_MARGIN * 2);
+    }
+
     private ChatMessage findDeleteTarget(double mouseX, double mouseY) {
         UUID playerUuid = getPlayerUuid();
         if (playerUuid == null) return null;
@@ -199,7 +339,8 @@ public final class CustomChatScreen extends Screen {
     }
 
     private boolean isMouseOverRow(double mouseX, double mouseY, int y) {
-        return mouseX >= 8 && mouseX < this.width - 8 && mouseY >= y && mouseY < y + this.font.lineHeight;
+        return mouseX >= 8 && mouseX < this.width - 8
+                && mouseY >= y && mouseY < y + this.font.lineHeight;
     }
 
     private boolean isMouseOverDelete(double mouseX, double mouseY, int y) {
@@ -242,4 +383,6 @@ public final class CustomChatScreen extends Screen {
                 ChatClientState.get(index - 1).createdAt()
         );
     }
+
+    private record TagQuery(int start, String query) {}
 }

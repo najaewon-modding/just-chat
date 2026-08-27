@@ -7,6 +7,7 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 
+import java.util.List;
 import java.util.UUID;
 
 public record ChatMessage(
@@ -15,7 +16,8 @@ public record ChatMessage(
         String senderName,
         String content,
         long createdAt,
-        boolean deleted
+        boolean deleted,
+        List<PlayerTag> playerTags
 ) {
     public static final long DELETE_WINDOW_MILLIS = 5L * 60L * 1000L;
 
@@ -25,8 +27,12 @@ public record ChatMessage(
             Codec.STRING.fieldOf("senderName").forGetter(ChatMessage::senderName),
             Codec.STRING.fieldOf("content").forGetter(ChatMessage::content),
             Codec.LONG.fieldOf("createdAt").forGetter(ChatMessage::createdAt),
-            Codec.BOOL.optionalFieldOf("deleted", false).forGetter(ChatMessage::deleted)
+            Codec.BOOL.optionalFieldOf("deleted", false).forGetter(ChatMessage::deleted),
+            PlayerTag.CODEC.listOf().optionalFieldOf("playerTags", List.of()).forGetter(ChatMessage::playerTags)
     ).apply(instance, ChatMessage::new));
+
+    private static final StreamCodec<ByteBuf, List<PlayerTag>> PLAYER_TAG_LIST_CODEC =
+            PlayerTag.STREAM_CODEC.apply(ByteBufCodecs.list(128));
 
     public static final StreamCodec<ByteBuf, ChatMessage> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_LONG, ChatMessage::id,
@@ -35,6 +41,7 @@ public record ChatMessage(
             ByteBufCodecs.STRING_UTF8, ChatMessage::content,
             ByteBufCodecs.VAR_LONG, ChatMessage::createdAt,
             ByteBufCodecs.BOOL, ChatMessage::deleted,
+            PLAYER_TAG_LIST_CODEC, ChatMessage::playerTags,
             ChatMessage::new
     );
 
@@ -44,6 +51,6 @@ public record ChatMessage(
     }
 
     public ChatMessage asDeleted() {
-        return new ChatMessage(id, senderUuid, senderName, "", createdAt, true);
+        return new ChatMessage(id, senderUuid, senderName, "", createdAt, true, List.of());
     }
 }

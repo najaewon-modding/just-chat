@@ -2,7 +2,9 @@ package njw.net.justchat.client;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import njw.net.justchat.data.ChatMessage;
+import njw.net.justchat.data.PlayerTag;
 import njw.net.justchat.data.SystemChatMessage;
 
 public record ChatClientEntry(
@@ -57,6 +59,24 @@ public record ChatClientEntry(
                                     .withStyle(ChatFormatting.GRAY)
                     );
         }
-        return Component.literal("<" + chatMessage.senderName() + "> " + chatMessage.content());
+        return createPlayerMessage();
+    }
+
+    private Component createPlayerMessage() {
+        String content = chatMessage.content();
+        MutableComponent result = Component.literal("<" + chatMessage.senderName() + "> ");
+        int cursor = 0;
+
+        for (PlayerTag tag : chatMessage.playerTags()) {
+            int start = tag.start();
+            int end = tag.end();
+            if (start < cursor || start < 0 || end > content.length() || start >= end) continue;
+            if (cursor < start) result.append(Component.literal(content.substring(cursor, start)));
+            result.append(Component.literal(content.substring(start, end)).withStyle(style -> style.withColor(0x55AAFF)));
+            cursor = end;
+        }
+
+        if (cursor < content.length()) result.append(Component.literal(content.substring(cursor)));
+        return result;
     }
 }

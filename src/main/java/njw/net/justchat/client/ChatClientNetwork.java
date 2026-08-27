@@ -13,6 +13,7 @@ import njw.net.justchat.network.ChatDeletedPayload;
 import njw.net.justchat.network.ChatHistoryPayload;
 import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.NewSystemChatPayload;
+import njw.net.justchat.network.PlayerSuggestionsPayload;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
 public final class ChatClientNetwork {
@@ -24,6 +25,7 @@ public final class ChatClientNetwork {
         event.register(ChatDeletedPayload.TYPE, ChatClientNetwork::handleChatDeleted);
         event.register(ChatHistoryPayload.TYPE, ChatClientNetwork::handleChatHistory);
         event.register(NewSystemChatPayload.TYPE, ChatClientNetwork::handleNewSystemChat);
+        event.register(PlayerSuggestionsPayload.TYPE, ChatClientNetwork::handlePlayerSuggestions);
     }
 
     @SubscribeEvent
@@ -37,7 +39,8 @@ public final class ChatClientNetwork {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null || minecraft.screen instanceof CustomChatScreen) return;
         String time = ChatTimeFormatter.formatTime(message.createdAt());
-        Component line = Component.literal("[" + time + "] <" + message.senderName() + "> " + message.content());
+        Component content = ChatClientEntry.player(message).displayMessage();
+        Component line = Component.literal("[" + time + "] ").append(content);
         VanillaChatCapture.runSuppressed(() -> minecraft.player.sendSystemMessage(line));
     }
 
@@ -55,5 +58,12 @@ public final class ChatClientNetwork {
 
     private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
         ChatClientState.addSystem(payload.message());
+    }
+
+    private static void handlePlayerSuggestions(PlayerSuggestionsPayload payload, IPayloadContext context) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.screen instanceof CustomChatScreen screen) {
+            screen.updatePlayerSuggestions(payload.query(), payload.names());
+        }
     }
 }

@@ -50,8 +50,22 @@ public final class ChatSavedData extends SavedData {
         return server.getDataStorage().computeIfAbsent(TYPE);
     }
 
-    public ChatMessage add(UUID senderUuid, String senderName, String content, long createdAt) {
-        ChatMessage message = new ChatMessage(nextMessageId++, senderUuid, senderName, content, createdAt, false);
+    public ChatMessage add(
+            UUID senderUuid,
+            String senderName,
+            String content,
+            long createdAt,
+            List<PlayerTag> playerTags
+    ) {
+        ChatMessage message = new ChatMessage(
+                nextMessageId++,
+                senderUuid,
+                senderName,
+                content,
+                createdAt,
+                false,
+                playerTags
+        );
         messages.add(message);
         setDirty();
         return message;

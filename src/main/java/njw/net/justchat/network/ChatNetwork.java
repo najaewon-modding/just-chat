@@ -1,5 +1,6 @@
 package njw.net.justchat.network;
 
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -9,6 +10,10 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.data.ChatSavedData;
+import njw.net.justchat.data.PlayerTag;
+import njw.net.justchat.server.PlayerTagResolver;
+
+import java.util.List;
 
 @EventBusSubscriber(modid = "njw_just_chat")
 public final class ChatNetwork {
@@ -30,22 +35,31 @@ public final class ChatNetwork {
                 RequestChatHistoryPayload.STREAM_CODEC,
                 ChatNetwork::handleHistoryRequest
         );
+        registrar.playToServer(
+                RequestPlayerSuggestionsPayload.TYPE,
+                RequestPlayerSuggestionsPayload.STREAM_CODEC,
+                ChatNetwork::handlePlayerSuggestions
+        );
         registrar.playToClient(NewChatPayload.TYPE, NewChatPayload.STREAM_CODEC);
         registrar.playToClient(ChatDeletedPayload.TYPE, ChatDeletedPayload.STREAM_CODEC);
         registrar.playToClient(ChatHistoryPayload.TYPE, ChatHistoryPayload.STREAM_CODEC);
         registrar.playToClient(NewSystemChatPayload.TYPE, NewSystemChatPayload.STREAM_CODEC);
+        registrar.playToClient(PlayerSuggestionsPayload.TYPE, PlayerSuggestionsPayload.STREAM_CODEC);
     }
 
     private static void handleSendChat(SendChatPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         String content = payload.content().trim();
         if (content.isEmpty() || content.length() > MAX_MESSAGE_LENGTH || content.startsWith("/")) return;
-        ChatSavedData data = ChatSavedData.get(player.level().getServer());
+        MinecraftServer server = player.level().getServer();
+        List<PlayerTag> playerTags = PlayerTagResolver.resolve(server, content);
+        ChatSavedData data = ChatSavedData.get(server);
         ChatMessage message = data.add(
                 player.getUUID(),
                 player.getName().getString(),
                 content,
-                System.currentTimeMillis()
+                System.currentTimeMillis(),
+                playerTags
         );
         PacketDistributor.sendToAllPlayers(new NewChatPayload(message));
     }
@@ -66,5 +80,15 @@ public final class ChatNetwork {
                 player,
                 new ChatHistoryPayload(history.messages(), history.systemMessages(), history.hasMore())
         );
+    }
+
+    private static void handlePlayerSuggestions(
+            RequestPlayerSuggestionsPayload payload,
+            IPayloadContext context
+    ) {
+        if (!(context.player() instanceof ServerPlayer player)) return;
+        MinecraftServer server = player.level().getServer();
+        List<String> names = PlayerTagResolver.suggest(server, payload.query());
+        PacketDistributor.sendToPlayer(player, new PlayerSuggestionsPayload(payload.query(), names));
     }
 }
