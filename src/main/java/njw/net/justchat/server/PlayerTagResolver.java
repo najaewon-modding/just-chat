@@ -7,6 +7,7 @@ import njw.net.justchat.data.ItemTag;
 import njw.net.justchat.data.PlayerTag;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -45,24 +46,34 @@ public final class PlayerTagResolver {
         return List.copyOf(tags);
     }
 
-    public static List<String> suggest(MinecraftServer server, String query) {
+    public static List<Suggestion> suggest(MinecraftServer server, String query) {
         if (query.length() > 16 || !query.matches("[A-Za-z0-9_]*")) return List.of();
+
         String lowerQuery = query.toLowerCase(Locale.ROOT);
-        Map<String, String> names = new LinkedHashMap<>();
+        Map<String, Suggestion> suggestions = new LinkedHashMap<>();
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             String name = player.getName().getString();
-            names.put(name.toLowerCase(Locale.ROOT), name);
+            suggestions.put(
+                    name.toLowerCase(Locale.ROOT),
+                    new Suggestion(name, true)
+            );
         }
 
         for (String name : UsernameCache.getMap().values()) {
             if (name == null) continue;
-            names.putIfAbsent(name.toLowerCase(Locale.ROOT), name);
+            suggestions.putIfAbsent(
+                    name.toLowerCase(Locale.ROOT),
+                    new Suggestion(name, false)
+            );
         }
 
-        return names.values().stream()
-                .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(lowerQuery))
-                .sorted(String.CASE_INSENSITIVE_ORDER)
+        return suggestions.values().stream()
+                .filter(suggestion -> suggestion.name().toLowerCase(Locale.ROOT).startsWith(lowerQuery))
+                .sorted(
+                        Comparator.comparingInt((Suggestion suggestion) -> suggestion.online() ? 0 : 1)
+                                .thenComparing(Suggestion::name, String.CASE_INSENSITIVE_ORDER)
+                )
                 .limit(MAX_SUGGESTIONS)
                 .toList();
     }
@@ -76,17 +87,29 @@ public final class PlayerTagResolver {
 
     private static ResolvedPlayer resolvePlayer(MinecraftServer server, String name) {
         ServerPlayer online = server.getPlayerList().getPlayerByName(name);
-        if (online != null) return new ResolvedPlayer(online.getUUID(), online.getName().getString());
+
+        if (online != null) {
+            return new ResolvedPlayer(
+                    online.getUUID(),
+                    online.getName().getString()
+            );
+        }
 
         for (Map.Entry<UUID, String> entry : UsernameCache.getMap().entrySet()) {
             String cachedName = entry.getValue();
+
             if (cachedName != null && cachedName.equalsIgnoreCase(name)) {
-                return new ResolvedPlayer(entry.getKey(), cachedName);
+                return new ResolvedPlayer(
+                        entry.getKey(),
+                        cachedName
+                );
             }
         }
 
         return null;
     }
+
+    public record Suggestion(String name, boolean online) {}
 
     private record ResolvedPlayer(UUID uuid, String name) {}
 }

@@ -147,7 +147,7 @@ public final class ChatClientNetwork {
         if (minecraft.screen instanceof CustomChatScreen screen) {
             screen.updatePlayerSuggestions(
                     payload.query(),
-                    payload.names()
+                    payload.suggestions()
             );
         }
     }

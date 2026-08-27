@@ -298,16 +298,21 @@ public final class ChatNetwork {
 
         MinecraftServer server = player.level().getServer();
 
-        List<String> names = PlayerTagResolver.suggest(
+        List<PlayerSuggestionsPayload.Suggestion> suggestions = PlayerTagResolver.suggest(
                 server,
                 payload.query()
-        );
+        ).stream().map(
+                suggestion -> new PlayerSuggestionsPayload.Suggestion(
+                        suggestion.name(),
+                        suggestion.online()
+                )
+        ).toList();
 
         PacketDistributor.sendToPlayer(
                 player,
                 new PlayerSuggestionsPayload(
                         payload.query(),
-                        names
+                        suggestions
                 )
         );
     }

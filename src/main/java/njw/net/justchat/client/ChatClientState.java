@@ -123,6 +123,15 @@ public final class ChatClientState {
         return true;
     }
 
+    public static boolean beginLatestHistoryRequest() {
+        if (!historyInitialized || historyLoading) return false;
+
+        historyLoading = true;
+        historyDirection = HistoryDirection.LATEST;
+        unseenNewerWhileLoading = false;
+        return true;
+    }
+
     public static void completeHistory(
             List<ChatMessage> messages,
             List<SystemChatMessage> systemMessages,
@@ -132,6 +141,10 @@ public final class ChatClientState {
 
         if (direction == HistoryDirection.NONE) {
             direction = HistoryDirection.INITIAL;
+        }
+
+        if (direction == HistoryDirection.LATEST) {
+            ENTRIES.clear();
         }
 
         for (ChatMessage message : messages) {
@@ -173,6 +186,15 @@ public final class ChatClientState {
             }
         }
 
+        if (direction == HistoryDirection.LATEST) {
+            hasOlderHistory = hasMore;
+            hasNewerHistory = unseenNewerWhileLoading;
+
+            if (trimOldestToLimit()) {
+                hasOlderHistory = true;
+            }
+        }
+
         historyInitialized = true;
         historyLoading = false;
         historyDirection = HistoryDirection.NONE;
@@ -189,6 +211,14 @@ public final class ChatClientState {
 
     public static boolean hasOlderHistory() {
         return hasOlderHistory;
+    }
+
+    public static boolean hasNewerHistory() {
+        return hasNewerHistory;
+    }
+
+    public static boolean historyLoading() {
+        return historyLoading;
     }
 
     public static long oldestPersistentId() {
@@ -272,6 +302,11 @@ public final class ChatClientState {
     private static boolean shouldAcceptNewPersistent(long id) {
         long oldest = oldestPersistentId();
         long newest = newestPersistentId();
+
+        if (historyLoading && historyDirection == HistoryDirection.LATEST) {
+            unseenNewerWhileLoading = true;
+            return false;
+        }
 
         if (historyLoading
                 && (historyDirection == HistoryDirection.OLDER
@@ -410,6 +445,7 @@ public final class ChatClientState {
         NONE,
         INITIAL,
         OLDER,
-        NEWER
+        NEWER,
+        LATEST
     }
 }

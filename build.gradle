@@ -37,7 +37,6 @@ neoForge {
             programArgument '--username'
             programArgument 'Player1'
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
-            systemProperty 'njw_just_chat.clientHistoryWindow', '20'
         }
 
         client2 {
