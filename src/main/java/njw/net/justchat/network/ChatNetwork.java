@@ -10,10 +10,14 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.data.ChatSavedData;
+import njw.net.justchat.data.PlayerPresence;
+import njw.net.justchat.data.PlayerPresenceSavedData;
 import njw.net.justchat.data.PlayerTag;
 import njw.net.justchat.server.PlayerTagResolver;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @EventBusSubscriber(modid = "njw_just_chat")
 public final class ChatNetwork {
@@ -40,11 +44,17 @@ public final class ChatNetwork {
                 RequestPlayerSuggestionsPayload.STREAM_CODEC,
                 ChatNetwork::handlePlayerSuggestions
         );
+        registrar.playToServer(
+                RequestPlayerPresencePayload.TYPE,
+                RequestPlayerPresencePayload.STREAM_CODEC,
+                ChatNetwork::handlePlayerPresence
+        );
         registrar.playToClient(NewChatPayload.TYPE, NewChatPayload.STREAM_CODEC);
         registrar.playToClient(ChatDeletedPayload.TYPE, ChatDeletedPayload.STREAM_CODEC);
         registrar.playToClient(ChatHistoryPayload.TYPE, ChatHistoryPayload.STREAM_CODEC);
         registrar.playToClient(NewSystemChatPayload.TYPE, NewSystemChatPayload.STREAM_CODEC);
         registrar.playToClient(PlayerSuggestionsPayload.TYPE, PlayerSuggestionsPayload.STREAM_CODEC);
+        registrar.playToClient(PlayerPresencePayload.TYPE, PlayerPresencePayload.STREAM_CODEC);
     }
 
     private static void handleSendChat(SendChatPayload payload, IPayloadContext context) {
@@ -90,5 +100,22 @@ public final class ChatNetwork {
         MinecraftServer server = player.level().getServer();
         List<String> names = PlayerTagResolver.suggest(server, payload.query());
         PacketDistributor.sendToPlayer(player, new PlayerSuggestionsPayload(payload.query(), names));
+    }
+
+    private static void handlePlayerPresence(
+            RequestPlayerPresencePayload payload,
+            IPayloadContext context
+    ) {
+        if (!(context.player() instanceof ServerPlayer player)) return;
+        MinecraftServer server = player.level().getServer();
+        PlayerPresenceSavedData data = PlayerPresenceSavedData.get(server);
+        List<PlayerPresence> result = new ArrayList<>(payload.playerUuids().size());
+
+        for (UUID uuid : payload.playerUuids()) {
+            boolean online = server.getPlayerList().getPlayer(uuid) != null;
+            result.add(new PlayerPresence(uuid, data.getLastSeen(uuid), online));
+        }
+
+        PacketDistributor.sendToPlayer(player, new PlayerPresencePayload(List.copyOf(result)));
     }
 }

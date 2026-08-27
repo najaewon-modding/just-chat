@@ -13,6 +13,7 @@ import njw.net.justchat.network.ChatDeletedPayload;
 import njw.net.justchat.network.ChatHistoryPayload;
 import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.NewSystemChatPayload;
+import njw.net.justchat.network.PlayerPresencePayload;
 import njw.net.justchat.network.PlayerSuggestionsPayload;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
@@ -26,16 +27,20 @@ public final class ChatClientNetwork {
         event.register(ChatHistoryPayload.TYPE, ChatClientNetwork::handleChatHistory);
         event.register(NewSystemChatPayload.TYPE, ChatClientNetwork::handleNewSystemChat);
         event.register(PlayerSuggestionsPayload.TYPE, ChatClientNetwork::handlePlayerSuggestions);
+        event.register(PlayerPresencePayload.TYPE, ChatClientNetwork::handlePlayerPresence);
     }
 
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ChatClientState.clear();
+        PlayerPresenceClientState.clear();
     }
 
     private static void handleNewChat(NewChatPayload payload, IPayloadContext context) {
         ChatMessage message = payload.message();
         ChatClientState.addPlayer(message);
+        PlayerPresenceClientState.requestForMessage(message);
+        MentionNotifier.notifyIfMentioned(message);
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null || minecraft.screen instanceof CustomChatScreen) return;
         String time = ChatTimeFormatter.formatTime(message.createdAt());
@@ -54,6 +59,7 @@ public final class ChatClientNetwork {
                 payload.systemMessages(),
                 payload.hasMore()
         );
+        PlayerPresenceClientState.requestForMessages(payload.messages());
     }
 
     private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
@@ -65,5 +71,9 @@ public final class ChatClientNetwork {
         if (minecraft.screen instanceof CustomChatScreen screen) {
             screen.updatePlayerSuggestions(payload.query(), payload.names());
         }
+    }
+
+    private static void handlePlayerPresence(PlayerPresencePayload payload, IPayloadContext context) {
+        PlayerPresenceClientState.updateAll(payload.players());
     }
 }

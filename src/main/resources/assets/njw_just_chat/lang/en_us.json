@@ -5,5 +5,13 @@
   "screen.njw_just_chat.command_notice": "Close the current screen, then press / to enter a command.",
   "screen.njw_just_chat.delete": "Delete",
   "screen.njw_just_chat.deleted_message": "This message has been deleted",
+  "screen.njw_just_chat.mention_title": "Mention",
+  "screen.njw_just_chat.mention_message": "%s mentioned you.",
+  "screen.njw_just_chat.player_tag_last_seen": "Last seen: %s",
+  "screen.njw_just_chat.player_tag_online": "Online",
+  "screen.njw_just_chat.player_tag_last_seen_now": "Just now",
+  "screen.njw_just_chat.player_tag_last_seen_hours": "%s hours ago",
+  "screen.njw_just_chat.player_tag_last_seen_loading": "Loading...",
+  "screen.njw_just_chat.player_tag_last_seen_unknown": "Unknown",
   "config.njw_just_chat.close_chat_after_send": "Close chat after sending"
 }
