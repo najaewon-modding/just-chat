@@ -1,0 +1,6 @@
+{
+  "screen.njw_just_chat.title": "Chat",
+  "screen.njw_just_chat.message_input": "메시지",
+  "screen.njw_just_chat.test_notice": "Enter를 눌러 전송",
+  "screen.njw_just_chat.command_notice": "명령어를 입력하려면 현재 화면을 닫은 뒤 / 키를 눌러주세요."
+}
