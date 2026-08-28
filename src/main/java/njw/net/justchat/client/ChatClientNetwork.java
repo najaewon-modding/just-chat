@@ -45,11 +45,12 @@ public final class ChatClientNetwork {
         ChatMessage message = payload.message();
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
-        if (screen != null) screen.beforeLivePersistentMessage();
+        boolean ownMessage = minecraft.player != null && minecraft.player.getUUID().equals(message.senderUuid());
+        if (screen != null) screen.beforeLivePersistentMessage(ownMessage);
         ChatClientState.addPlayer(message);
         PlayerPresenceClientState.requestForMessage(message);
         MentionNotifier.notifyIfMentioned(message);
-        if (screen != null) screen.afterLivePersistentMessage();
+        if (screen != null) screen.afterLivePersistentMessage(message.id());
         if (minecraft.player == null || screen != null) return;
         String time = ChatTimeFormatter.formatTime(message.createdAt());
         Component content = ChatClientEntry.player(message).displayMessage();
@@ -74,9 +75,9 @@ public final class ChatClientNetwork {
     private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
-        if (screen != null) screen.beforeLivePersistentMessage();
+        if (screen != null) screen.beforeLivePersistentMessage(false);
         ChatClientState.addSystem(payload.message());
-        if (screen != null) screen.afterLivePersistentMessage();
+        if (screen != null) screen.afterLivePersistentMessage(payload.message().id());
     }
 
     private static void handleChatReadState(ChatReadStatePayload payload, IPayloadContext context) {

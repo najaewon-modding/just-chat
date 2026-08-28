@@ -31,7 +31,7 @@ public final class ChatNetwork {
 
     @SubscribeEvent
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("3");
+        PayloadRegistrar registrar = event.registrar("4");
         registrar.playToServer(SendChatPayload.TYPE, SendChatPayload.STREAM_CODEC, ChatNetwork::handleSendChat);
         registrar.playToServer(DeleteChatPayload.TYPE, DeleteChatPayload.STREAM_CODEC, ChatNetwork::handleDeleteChat);
         registrar.playToServer(RequestChatHistoryPayload.TYPE, RequestChatHistoryPayload.STREAM_CODEC,
@@ -121,9 +121,10 @@ public final class ChatNetwork {
         MinecraftServer server = player.level().getServer();
         ChatSavedData chatData = ChatSavedData.get(server);
         PlayerChatReadSavedData readData = PlayerChatReadSavedData.get(server);
-        long latestMessageId = chatData.latestPersistentId();
+        long latestMessageId = Math.max(0L, chatData.latestPersistentId());
         if (payload.shouldMarkRead()) {
-            readData.markRead(player.getUUID(), latestMessageId);
+            long requestedId = Math.max(0L, payload.lastReadMessageId());
+            readData.markRead(player.getUUID(), Math.min(requestedId, latestMessageId));
             return;
         }
         long lastReadMessageId = readData.getOrInitialize(player.getUUID(), latestMessageId);

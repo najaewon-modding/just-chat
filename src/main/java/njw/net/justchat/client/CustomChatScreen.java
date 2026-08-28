@@ -83,6 +83,7 @@ public final class CustomChatScreen extends Screen {
     private long historyAnchorId = Long.MIN_VALUE;
     private int historyAnchorLineIndex = -1;
     private ViewportAnchor liveViewportAnchor;
+    private boolean liveMessageHidden;
     private boolean readStateRequested;
     private boolean switchingToItemPicker;
     private boolean jumpingToLatest;
@@ -161,7 +162,9 @@ public final class CustomChatScreen extends Screen {
         super.removed();
         if (switchingToItemPicker) return;
         if (this.minecraft == null || this.minecraft.player == null) return;
-        ClientPacketDistributor.sendToServer(ChatReadStateRequestPayload.markRead());
+        ClientPacketDistributor.sendToServer(
+                ChatReadStateRequestPayload.markRead(ChatReadClientState.readThroughMessageId())
+        );
     }
 
     @Override
@@ -240,10 +243,10 @@ public final class CustomChatScreen extends Screen {
         return true;
     }
 
-    public void beforeLivePersistentMessage() {
-        boolean hidden = scrollOffset > 0 || ChatClientState.hasNewerHistory() || jumpingToLatest;
+    public void beforeLivePersistentMessage(boolean ownMessage) {
+        liveMessageHidden = scrollOffset > 0 || ChatClientState.hasNewerHistory() || jumpingToLatest;
 
-        if (hidden) {
+        if (liveMessageHidden && !ownMessage) {
             hasUnseenLiveMessages = true;
             newMessageNoticeUntil = System.currentTimeMillis() + NEW_MESSAGE_NOTICE_MILLIS;
         }
@@ -251,12 +254,15 @@ public final class CustomChatScreen extends Screen {
         liveViewportAnchor = scrollOffset > 0 ? captureViewportAnchor() : null;
     }
 
-    public void afterLivePersistentMessage() {
+    public void afterLivePersistentMessage(long messageId) {
+        if (!liveMessageHidden) ChatReadClientState.markSeen(messageId);
+
         if (liveViewportAnchor != null) {
             restoreViewportAnchor(liveViewportAnchor);
             liveViewportAnchor = null;
         }
 
+        liveMessageHidden = false;
         updateJumpButtonState();
     }
 
@@ -392,6 +398,11 @@ public final class CustomChatScreen extends Screen {
 
     private boolean isViewingLatest() {
         return scrollOffset == 0 && !ChatClientState.hasNewerHistory() && !jumpingToLatest;
+    }
+
+    private void markCurrentLatestSeen() {
+        if (!isViewingLatest()) return;
+        ChatReadClientState.markSeen(ChatClientState.newestPersistentId());
     }
 
     private boolean isMouseOverJumpButton(double mouseX, double mouseY) {
@@ -674,6 +685,7 @@ public final class CustomChatScreen extends Screen {
         handleHistoryRequestTimeout();
         List<RenderRow> rows = buildRenderRows();
         scrollOffset = Math.min(scrollOffset, getMaxScrollOffset(rows));
+        markCurrentLatestSeen();
         updateJumpButtonState();
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
@@ -722,9 +734,9 @@ public final class CustomChatScreen extends Screen {
     private List<RenderRow> buildRenderRows() {
         List<RenderRow> rows = new ArrayList<>();
         int messageWidth = getMessageTextWidth();
-        long readBoundaryId = ChatReadClientState.lastReadMessageId();
-        boolean showReadBoundary =
-                ChatReadClientState.initialized() && ChatClientState.canDisplayReadBoundary(readBoundaryId);
+        long readBoundaryId = ChatReadClientState.readBoundaryMessageId();
+        boolean showReadBoundary = ChatReadClientState.readBoundaryVisible()
+                && ChatClientState.canDisplayReadBoundary(readBoundaryId);
         boolean readBoundaryInserted = false;
 
         for (int i = 0; i < ChatClientState.size(); i++) {
