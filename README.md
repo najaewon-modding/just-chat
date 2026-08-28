@@ -8,7 +8,7 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 ## Compatibility
 
 - Minecraft **26.1.2**
-- NeoForge **26.1.2.99+**
+- NeoForge **26.1.2.97+**
 - Just Chat **1.0.0**
 - Mod ID: `njw_just_chat`
 - Build environment: **Java 25**
