@@ -5,7 +5,6 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientChatReceivedEvent;
-import njw.net.justchat.data.SystemChatMessage;
 
 @EventBusSubscriber(modid = "njw_just_chat")
 public final class VanillaChatCapture {
@@ -16,9 +15,7 @@ public final class VanillaChatCapture {
     @SubscribeEvent
     public static void onSystemMessage(ClientChatReceivedEvent.System event) {
         if (suppressionDepth > 0 || event.isOverlay()) return;
-        SystemChatMessage matched = ChatClientState.findRecentSystem(event.getMessage());
-        if (matched == null) return;
-        handleDisplay(event, matched.createdAt());
+        if (ChatClientState.findRecentSystem(event.getMessage()) != null) event.setCanceled(true);
     }
 
     @SubscribeEvent
@@ -26,10 +23,10 @@ public final class VanillaChatCapture {
         if (suppressionDepth > 0) return;
         long now = System.currentTimeMillis();
         ChatClientState.addVanilla(event.getMessage(), now);
-        handleDisplay(event, now);
+        handlePlayerDisplay(event, now);
     }
 
-    private static void handleDisplay(ClientChatReceivedEvent event, long createdAt) {
+    private static void handlePlayerDisplay(ClientChatReceivedEvent event, long createdAt) {
         Minecraft minecraft = Minecraft.getInstance();
 
         if (minecraft.screen instanceof CustomChatScreen) {
