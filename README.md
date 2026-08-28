@@ -9,7 +9,7 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 
 - Minecraft **26.1.2**
 - NeoForge **26.1.2.97+**
-- Just Chat **1.0.0**
+- Just Chat **1.0.1**
 - Mod ID: `njw_just_chat`
 - Build environment: **Java 25**
 - Languages: **한국어 / English**
@@ -75,7 +75,7 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 ## Installation
 
 1. Minecraft **26.1.2**에 맞는 NeoForge **26.1.2.99 이상**을 설치합니다.
-2. GitHub Releases에서 `njw_just_chat-1.0.0.jar`를 다운로드합니다.
+2. GitHub Releases에서 `njw_just_chat-1.0.1.jar`를 다운로드합니다.
 3. 다운로드한 JAR 파일을 클라이언트의 `mods` 폴더에 넣습니다.
 4. 멀티플레이 서버에서도 서버의 `mods` 폴더에 같은 버전의 JAR을 넣습니다.
 5. Minecraft를 실행합니다.
