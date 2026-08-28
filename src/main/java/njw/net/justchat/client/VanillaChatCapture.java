@@ -2,13 +2,12 @@ package njw.net.justchat.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientChatReceivedEvent;
 import njw.net.justchat.data.SystemChatMessage;
 
-@EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
+@EventBusSubscriber(modid = "njw_just_chat")
 public final class VanillaChatCapture {
     private static int suppressionDepth;
 
@@ -17,32 +16,35 @@ public final class VanillaChatCapture {
     @SubscribeEvent
     public static void onSystemMessage(ClientChatReceivedEvent.System event) {
         if (suppressionDepth > 0 || event.isOverlay()) return;
-        long receivedAt = System.currentTimeMillis();
-        SystemChatMessage system = ChatClientState.findRecentSystem(event.getMessage(), receivedAt);
-        if (system == null) return;
-        handleDisplay(event, system.createdAt());
+        SystemChatMessage matched = ChatClientState.findRecentSystem(event.getMessage());
+        if (matched == null) return;
+        handleDisplay(event, matched.createdAt());
     }
 
     @SubscribeEvent
     public static void onPlayerMessage(ClientChatReceivedEvent.Player event) {
         if (suppressionDepth > 0) return;
-        long receivedAt = System.currentTimeMillis();
-        ChatClientState.addVanilla(event.getMessage(), receivedAt);
-        handleDisplay(event, receivedAt);
+        long now = System.currentTimeMillis();
+        ChatClientState.addVanilla(event.getMessage(), now);
+        handleDisplay(event, now);
     }
 
     private static void handleDisplay(ClientChatReceivedEvent event, long createdAt) {
         Minecraft minecraft = Minecraft.getInstance();
+
         if (minecraft.screen instanceof CustomChatScreen) {
             event.setCanceled(true);
             return;
         }
+
         String time = ChatTimeFormatter.formatTime(createdAt);
-        event.setMessage(Component.literal("[" + time + "] ").append(event.getMessage().copy()));
+        Component line = Component.literal("[" + time + "] ").append(event.getMessage().copy());
+        event.setMessage(line);
     }
 
     public static void runSuppressed(Runnable action) {
         suppressionDepth++;
+
         try {
             action.run();
         } finally {

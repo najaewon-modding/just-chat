@@ -45,16 +45,12 @@ public final class ChatClientNetwork {
         ChatMessage message = payload.message();
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
-
         if (screen != null) screen.beforeLivePersistentMessage();
-
         ChatClientState.addPlayer(message);
         PlayerPresenceClientState.requestForMessage(message);
         MentionNotifier.notifyIfMentioned(message);
-
         if (screen != null) screen.afterLivePersistentMessage();
         if (minecraft.player == null || screen != null) return;
-
         String time = ChatTimeFormatter.formatTime(message.createdAt());
         Component content = ChatClientEntry.player(message).displayMessage();
         Component line = Component.literal("[" + time + "] ").append(content);
@@ -66,9 +62,11 @@ public final class ChatClientNetwork {
     }
 
     private static void handleChatHistory(ChatHistoryPayload payload, IPayloadContext context) {
-        ChatClientState.completeHistory(payload.messages(), payload.systemMessages(), payload.hasMore());
+        boolean accepted = ChatClientState.completeHistory(
+                payload.requestId(), payload.messages(), payload.systemMessages(), payload.hasMore()
+        );
+        if (!accepted) return;
         PlayerPresenceClientState.requestForMessages(payload.messages());
-
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.screen instanceof CustomChatScreen screen) screen.onHistoryUpdated();
     }
@@ -76,7 +74,6 @@ public final class ChatClientNetwork {
     private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
-
         if (screen != null) screen.beforeLivePersistentMessage();
         ChatClientState.addSystem(payload.message());
         if (screen != null) screen.afterLivePersistentMessage();
@@ -88,19 +85,17 @@ public final class ChatClientNetwork {
 
     private static void handlePlayerSuggestions(PlayerSuggestionsPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();
-
         if (minecraft.screen instanceof CustomChatScreen screen) {
             screen.updatePlayerSuggestions(payload.query(), payload.suggestions());
         }
     }
 
     private static void handlePlayerPresence(PlayerPresencePayload payload, IPayloadContext context) {
-        PlayerPresenceClientState.updateAll(payload.players());
+        PlayerPresenceClientState.updateAll(payload.players(), payload.serverTimeMillis());
     }
 
     private static void handleItemTagCreated(ItemTagCreatedPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();
-
         if (minecraft.screen instanceof CustomChatScreen screen) {
             screen.insertItemTag(payload.requestId(), payload.token(), payload.item());
         }

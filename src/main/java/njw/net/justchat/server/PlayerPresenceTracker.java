@@ -33,6 +33,6 @@ public final class PlayerPresenceTracker {
         long now = System.currentTimeMillis();
         PlayerPresenceSavedData.get(server).update(player.getUUID(), now);
         PlayerPresence presence = new PlayerPresence(player.getUUID(), now, online);
-        PacketDistributor.sendToAllPlayers(new PlayerPresencePayload(List.of(presence)));
+        PacketDistributor.sendToAllPlayers(new PlayerPresencePayload(List.of(presence), now));
     }
 }

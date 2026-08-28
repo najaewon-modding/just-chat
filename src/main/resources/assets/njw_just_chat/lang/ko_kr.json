@@ -19,5 +19,6 @@
   "screen.njw_just_chat.player_tag_last_seen_hours": "%s시간 전",
   "screen.njw_just_chat.player_tag_last_seen_loading": "불러오는 중...",
   "screen.njw_just_chat.player_tag_last_seen_unknown": "알 수 없음",
-  "config.njw_just_chat.close_chat_after_send": "메시지 전송 후 채팅창 닫기"
+  "config.njw_just_chat.close_chat_after_send": "메시지 전송 후 채팅창 닫기",
+  "message.njw_just_chat.rate_limited": "잠시 후 다시 시도해주세요."
 }

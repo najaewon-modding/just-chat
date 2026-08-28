@@ -139,7 +139,11 @@ public final class CustomChatScreen extends Screen {
 
         if (ChatClientState.beginInitialHistoryRequest()) {
             ClientPacketDistributor.sendToServer(
-                    new RequestChatHistoryPayload(Long.MAX_VALUE, ChatClientState.initialHistoryLimit())
+                    new RequestChatHistoryPayload(
+                            ChatClientState.activeHistoryRequestId(),
+                            Long.MAX_VALUE,
+                            ChatClientState.initialHistoryLimit()
+                    )
             );
         } else if (firstInit && (ChatClientState.hasNewerHistory() || ChatClientState.historyLoading())) {
             jumpingToLatest = true;
@@ -369,7 +373,11 @@ public final class CustomChatScreen extends Screen {
     private void requestLatestHistory() {
         if (!jumpingToLatest || !ChatClientState.beginLatestHistoryRequest()) return;
         ClientPacketDistributor.sendToServer(
-                new RequestChatHistoryPayload(Long.MAX_VALUE, ChatClientState.initialHistoryLimit())
+                new RequestChatHistoryPayload(
+                        ChatClientState.activeHistoryRequestId(),
+                        Long.MAX_VALUE,
+                        ChatClientState.initialHistoryLimit()
+                )
         );
     }
 
@@ -582,7 +590,9 @@ public final class CustomChatScreen extends Screen {
         captureHistoryAnchor();
         ClientPacketDistributor.sendToServer(
                 new RequestChatHistoryPayload(
-                        ChatClientState.oldestPersistentId(), ChatClientState.pagingHistoryLimit()
+                        ChatClientState.activeHistoryRequestId(),
+                        ChatClientState.oldestPersistentId(),
+                        ChatClientState.pagingHistoryLimit()
                 )
         );
     }
@@ -593,7 +603,9 @@ public final class CustomChatScreen extends Screen {
         captureHistoryAnchor();
         ClientPacketDistributor.sendToServer(
                 new RequestNewerChatHistoryPayload(
-                        ChatClientState.newestPersistentId(), ChatClientState.pagingHistoryLimit()
+                        ChatClientState.activeHistoryRequestId(),
+                        ChatClientState.newestPersistentId(),
+                        ChatClientState.pagingHistoryLimit()
                 )
         );
     }
@@ -659,6 +671,7 @@ public final class CustomChatScreen extends Screen {
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        handleHistoryRequestTimeout();
         List<RenderRow> rows = buildRenderRows();
         scrollOffset = Math.min(scrollOffset, getMaxScrollOffset(rows));
         updateJumpButtonState();
@@ -668,6 +681,24 @@ public final class CustomChatScreen extends Screen {
         renderJumpButtonPulse(graphics);
         renderNotice(graphics);
         renderSuggestions(graphics);
+    }
+
+    private void handleHistoryRequestTimeout() {
+        if (!ChatClientState.consumeHistoryRequestTimeout()) return;
+        jumpingToLatest = false;
+        clearHistoryAnchor();
+
+        if (ChatClientState.beginInitialHistoryRequest()) {
+            ClientPacketDistributor.sendToServer(
+                    new RequestChatHistoryPayload(
+                            ChatClientState.activeHistoryRequestId(),
+                            Long.MAX_VALUE,
+                            ChatClientState.initialHistoryLimit()
+                    )
+            );
+        }
+
+        updateJumpButtonState();
     }
 
     private void renderNotice(GuiGraphicsExtractor graphics) {

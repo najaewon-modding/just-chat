@@ -19,5 +19,6 @@
   "screen.njw_just_chat.player_tag_last_seen_hours": "%s hours ago",
   "screen.njw_just_chat.player_tag_last_seen_loading": "Loading...",
   "screen.njw_just_chat.player_tag_last_seen_unknown": "Unknown",
-  "config.njw_just_chat.close_chat_after_send": "Close chat after sending"
+  "config.njw_just_chat.close_chat_after_send": "Close chat after sending",
+  "message.njw_just_chat.rate_limited": "Please try again shortly."
 }

@@ -9,7 +9,6 @@ import njw.net.justchat.network.RequestPlayerPresencePayload;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -18,19 +17,24 @@ import java.util.UUID;
 
 public final class PlayerPresenceClientState {
     private static final int REQUEST_BATCH_SIZE = 128;
+    private static final long REQUEST_RETRY_NANOS = 5_000_000_000L;
     private static final Map<UUID, PlayerPresence> PRESENCES = new HashMap<>();
-    private static final Set<UUID> REQUESTED = new HashSet<>();
+    private static final Map<UUID, Long> REQUESTED_AT = new HashMap<>();
 
     private PlayerPresenceClientState() {}
 
     public static PlayerPresence get(UUID uuid) {
-        return PRESENCES.get(uuid);
+        PlayerPresence presence = PRESENCES.get(uuid);
+        if (presence == null) request(List.of(uuid));
+        return presence;
     }
 
-    public static void updateAll(List<PlayerPresence> players) {
-        for (PlayerPresence player : players) {
-            PRESENCES.put(player.uuid(), player);
-            REQUESTED.remove(player.uuid());
+    public static void updateAll(List<PlayerPresence> presences, long serverTimeMillis) {
+        long clientTimeMillis = System.currentTimeMillis();
+        for (PlayerPresence presence : presences) {
+            PlayerPresence adjusted = adjustToClientClock(presence, serverTimeMillis, clientTimeMillis);
+            PRESENCES.put(adjusted.uuid(), adjusted);
+            REQUESTED_AT.remove(adjusted.uuid());
         }
     }
 
@@ -50,19 +54,34 @@ public final class PlayerPresenceClientState {
 
     public static void clear() {
         PRESENCES.clear();
-        REQUESTED.clear();
+        REQUESTED_AT.clear();
+    }
+
+    private static PlayerPresence adjustToClientClock(PlayerPresence presence, long serverTimeMillis,
+                                                      long clientTimeMillis) {
+        if (presence.lastSeenAt() <= 0L) return presence;
+        long ageMillis = serverTimeMillis >= presence.lastSeenAt() ? serverTimeMillis - presence.lastSeenAt() : 0L;
+        long adjustedLastSeenAt = ageMillis >= clientTimeMillis ? 1L : clientTimeMillis - ageMillis;
+        return new PlayerPresence(presence.uuid(), adjustedLastSeenAt, presence.online());
     }
 
     private static void request(Collection<UUID> uuids) {
+        long now = System.nanoTime();
         List<UUID> batch = new ArrayList<>(REQUEST_BATCH_SIZE);
         for (UUID uuid : uuids) {
-            if (PRESENCES.containsKey(uuid) || !REQUESTED.add(uuid)) continue;
+            if (PRESENCES.containsKey(uuid) || recentlyRequested(uuid, now)) continue;
+            REQUESTED_AT.put(uuid, now);
             batch.add(uuid);
             if (batch.size() < REQUEST_BATCH_SIZE) continue;
             send(batch);
             batch = new ArrayList<>(REQUEST_BATCH_SIZE);
         }
         if (!batch.isEmpty()) send(batch);
+    }
+
+    private static boolean recentlyRequested(UUID uuid, long now) {
+        Long requestedAt = REQUESTED_AT.get(uuid);
+        return requestedAt != null && now - requestedAt < REQUEST_RETRY_NANOS;
     }
 
     private static void send(List<UUID> uuids) {
