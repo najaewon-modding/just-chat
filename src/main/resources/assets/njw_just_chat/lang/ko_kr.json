@@ -2,6 +2,7 @@
   "screen.njw_just_chat.title": "Chat",
   "screen.njw_just_chat.message_input": "메시지",
   "screen.njw_just_chat.test_notice": "Enter를 눌러 전송",
+  "screen.njw_just_chat.new_message_notice": "새 메시지가 도착했습니다",
   "screen.njw_just_chat.command_notice": "명령어를 입력하려면 현재 화면을 닫은 뒤 / 키를 눌러주세요.",
   "screen.njw_just_chat.command_only_warning": "이 화면에서는 명령어만 입력할 수 있습니다. 일반 채팅은 T 키를 사용하세요.",
   "screen.njw_just_chat.item_tag": "아이템",

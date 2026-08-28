@@ -56,6 +56,10 @@ public final class CustomChatScreen extends Screen {
     private static final int JUMP_BUTTON_SIZE = 20;
     private static final int JUMP_BUTTON_RIGHT_MARGIN = 8;
     private static final int JUMP_BUTTON_GAP = 4;
+    private static final long NEW_MESSAGE_NOTICE_MILLIS = 5000L;
+    private static final int DEFAULT_NOTICE_COLOR = 0xFFAAAAAA;
+    private static final int COMMAND_NOTICE_COLOR = 0xFFFFAA00;
+    private static final int NEW_MESSAGE_NOTICE_COLOR = 0xFFFFFF55;
     private static final int SUGGESTION_ROW_HEIGHT = 12;
     private static final int SUGGESTION_PADDING = 4;
     private static final int SUGGESTION_MIN_WIDTH = 100;
@@ -78,9 +82,13 @@ public final class CustomChatScreen extends Screen {
     private int draftCursor;
     private long historyAnchorId = Long.MIN_VALUE;
     private int historyAnchorLineIndex = -1;
+    private ViewportAnchor liveViewportAnchor;
     private boolean readStateRequested;
     private boolean switchingToItemPicker;
     private boolean jumpingToLatest;
+    private boolean initializedOnce;
+    private boolean hasUnseenLiveMessages;
+    private long newMessageNoticeUntil;
 
     public CustomChatScreen() {
         super(Component.translatable("screen.njw_just_chat.title"));
@@ -90,6 +98,8 @@ public final class CustomChatScreen extends Screen {
     @Override
     protected void init() {
         super.init();
+        boolean firstInit = !initializedOnce;
+        initializedOnce = true;
         switchingToItemPicker = false;
 
         int inputY = this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
@@ -99,29 +109,14 @@ public final class CustomChatScreen extends Screen {
         this.itemTagButton = Button.builder(
                 Component.translatable("screen.njw_just_chat.item_tag"),
                 button -> openItemPicker()
-        ).bounds(
-                buttonX,
-                inputY,
-                ITEM_BUTTON_WIDTH,
-                INPUT_HEIGHT
-        ).build();
+        ).bounds(buttonX, inputY, ITEM_BUTTON_WIDTH, INPUT_HEIGHT).build();
 
-        this.jumpToLatestButton = Button.builder(
-                Component.literal("↓"),
-                button -> {}
-        ).bounds(
-                getJumpButtonX(),
-                getJumpButtonY(),
-                JUMP_BUTTON_SIZE,
-                JUMP_BUTTON_SIZE
+        this.jumpToLatestButton = Button.builder(Component.literal("↓"), button -> {}).bounds(
+                getJumpButtonX(), getJumpButtonY(), JUMP_BUTTON_SIZE, JUMP_BUTTON_SIZE
         ).build();
 
         this.messageInput = new EditBox(
-                this.font,
-                INPUT_SIDE_MARGIN,
-                inputY,
-                inputWidth,
-                INPUT_HEIGHT,
+                this.font, INPUT_SIDE_MARGIN, inputY, inputWidth, INPUT_HEIGHT,
                 Component.translatable("screen.njw_just_chat.message_input")
         );
 
@@ -130,14 +125,7 @@ public final class CustomChatScreen extends Screen {
         this.messageInput.setResponder(this::onInputChanged);
         this.messageInput.setValue(this.draft);
 
-        int cursor = Math.max(
-                0,
-                Math.min(
-                        this.draftCursor,
-                        this.draft.length()
-                )
-        );
-
+        int cursor = Math.max(0, Math.min(this.draftCursor, this.draft.length()));
         this.messageInput.setCursorPosition(cursor);
         this.messageInput.setHighlightPos(cursor);
 
@@ -151,45 +139,32 @@ public final class CustomChatScreen extends Screen {
 
         if (ChatClientState.beginInitialHistoryRequest()) {
             ClientPacketDistributor.sendToServer(
-                    new RequestChatHistoryPayload(
-                            Long.MAX_VALUE,
-                            ChatClientState.initialHistoryLimit()
-                    )
+                    new RequestChatHistoryPayload(Long.MAX_VALUE, ChatClientState.initialHistoryLimit())
             );
+        } else if (firstInit && (ChatClientState.hasNewerHistory() || ChatClientState.historyLoading())) {
+            jumpingToLatest = true;
+            requestLatestHistory();
         }
 
         if (!readStateRequested) {
             readStateRequested = true;
-            ClientPacketDistributor.sendToServer(
-                    ChatReadStateRequestPayload.request()
-            );
+            ClientPacketDistributor.sendToServer(ChatReadStateRequestPayload.request());
         }
     }
 
     @Override
     public void removed() {
         super.removed();
-
-        if (switchingToItemPicker) {
-            switchingToItemPicker = false;
-            return;
-        }
-
+        if (switchingToItemPicker) return;
         if (this.minecraft == null || this.minecraft.player == null) return;
-
-        ClientPacketDistributor.sendToServer(
-                ChatReadStateRequestPayload.markRead()
-        );
+        ClientPacketDistributor.sendToServer(ChatReadStateRequestPayload.markRead());
     }
 
     @Override
     public boolean keyPressed(KeyEvent event) {
         if (!playerSuggestions.isEmpty()) {
             if (event.key() == GLFW.GLFW_KEY_UP) {
-                selectedSuggestion = Math.floorMod(
-                        selectedSuggestion - 1,
-                        playerSuggestions.size()
-                );
+                selectedSuggestion = Math.floorMod(selectedSuggestion - 1, playerSuggestions.size());
                 return true;
             }
 
@@ -204,8 +179,7 @@ public final class CustomChatScreen extends Screen {
             }
         }
 
-        if (event.key() == GLFW.GLFW_KEY_ENTER
-                || event.key() == GLFW.GLFW_KEY_KP_ENTER) {
+        if (event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER) {
             sendMessage();
             return true;
         }
@@ -216,15 +190,9 @@ public final class CustomChatScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(
-            MouseButtonEvent event,
-            boolean doubleClick
-    ) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            int suggestion = findSuggestionAt(
-                    event.x(),
-                    event.y()
-            );
+            int suggestion = findSuggestionAt(event.x(), event.y());
 
             if (suggestion >= 0) {
                 applySuggestion(suggestion);
@@ -236,65 +204,31 @@ public final class CustomChatScreen extends Screen {
                 return true;
             }
 
-            ChatMessage message = findDeleteTarget(
-                    event.x(),
-                    event.y()
-            );
+            ChatMessage message = findDeleteTarget(event.x(), event.y());
 
             if (message != null) {
-                ClientPacketDistributor.sendToServer(
-                        new DeleteChatPayload(message.id())
-                );
+                ClientPacketDistributor.sendToServer(new DeleteChatPayload(message.id()));
                 return true;
             }
         }
 
-        boolean handled = super.mouseClicked(
-                event,
-                doubleClick
-        );
-
+        boolean handled = super.mouseClicked(event, doubleClick);
         refreshSuggestions();
         return handled;
     }
 
     @Override
-    public boolean mouseScrolled(
-            double x,
-            double y,
-            double scrollX,
-            double scrollY
-    ) {
-        if (scrollY == 0.0) {
-            return super.mouseScrolled(
-                    x,
-                    y,
-                    scrollX,
-                    scrollY
-            );
-        }
+    public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
+        if (scrollY == 0.0) return super.mouseScrolled(x, y, scrollX, scrollY);
 
         List<RenderRow> rows = buildRenderRows();
-
-        int amount = Math.max(
-                1,
-                (int) Math.round(
-                        Math.abs(scrollY) * SCROLL_LINES
-                )
-        );
-
+        int amount = Math.max(1, (int) Math.round(Math.abs(scrollY) * SCROLL_LINES));
         int maxOffset = getMaxScrollOffset(rows);
 
         if (scrollY > 0.0) {
-            scrollOffset = Math.min(
-                    maxOffset,
-                    scrollOffset + amount
-            );
+            scrollOffset = Math.min(maxOffset, scrollOffset + amount);
         } else {
-            scrollOffset = Math.max(
-                    0,
-                    scrollOffset - amount
-            );
+            scrollOffset = Math.max(0, scrollOffset - amount);
         }
 
         prefetchHistory(scrollY, rows);
@@ -302,26 +236,35 @@ public final class CustomChatScreen extends Screen {
         return true;
     }
 
-    public void updatePlayerSuggestions(
-            String query,
-            List<PlayerSuggestionsPayload.Suggestion> suggestions
-    ) {
+    public void beforeLivePersistentMessage() {
+        boolean hidden = scrollOffset > 0 || ChatClientState.hasNewerHistory() || jumpingToLatest;
+
+        if (hidden) {
+            hasUnseenLiveMessages = true;
+            newMessageNoticeUntil = System.currentTimeMillis() + NEW_MESSAGE_NOTICE_MILLIS;
+        }
+
+        liveViewportAnchor = scrollOffset > 0 ? captureViewportAnchor() : null;
+    }
+
+    public void afterLivePersistentMessage() {
+        if (liveViewportAnchor != null) {
+            restoreViewportAnchor(liveViewportAnchor);
+            liveViewportAnchor = null;
+        }
+
+        updateJumpButtonState();
+    }
+
+    public void updatePlayerSuggestions(String query, List<PlayerSuggestionsPayload.Suggestion> suggestions) {
         TagQuery active = getActiveTagQuery();
-
-        if (active == null) return;
-        if (!active.query().equalsIgnoreCase(query)) return;
-
+        if (active == null || !active.query().equalsIgnoreCase(query)) return;
         playerSuggestions = List.copyOf(suggestions);
         selectedSuggestion = 0;
     }
 
-    public void insertItemTag(
-            UUID requestId,
-            UUID token,
-            ItemStackTemplate item
-    ) {
-        if (!pendingItemRequests.remove(requestId)) return;
-        if (messageInput == null) return;
+    public void insertItemTag(UUID requestId, UUID token, ItemStackTemplate item) {
+        if (!pendingItemRequests.remove(requestId) || messageInput == null) return;
 
         if (itemTagReferences.size() >= ChatRules.MAX_ITEM_TAGS_PER_MESSAGE) {
             updateItemTagButtonState();
@@ -338,10 +281,7 @@ public final class CustomChatScreen extends Screen {
             return;
         }
 
-        String newValue = value.substring(0, cursor)
-                + insertion
-                + value.substring(cursor);
-
+        String newValue = value.substring(0, cursor) + insertion + value.substring(cursor);
         int tagStart = cursor;
         int tagEnd = cursor + displayText.length();
         int newCursor = cursor + insertion.length();
@@ -349,20 +289,8 @@ public final class CustomChatScreen extends Screen {
         messageInput.setValue(newValue);
         messageInput.setCursorPosition(newCursor);
         messageInput.setHighlightPos(newCursor);
-
-        itemTagReferences.add(
-                new ItemTagReference(
-                        token,
-                        tagStart,
-                        tagEnd,
-                        displayText
-                )
-        );
-
-        itemTagReferences.sort(
-                Comparator.comparingInt(ItemTagReference::start)
-        );
-
+        itemTagReferences.add(new ItemTagReference(token, tagStart, tagEnd, displayText));
+        itemTagReferences.sort(Comparator.comparingInt(ItemTagReference::start));
         draftCursor = newCursor;
         clearSuggestions();
         updateItemTagButtonState();
@@ -376,14 +304,7 @@ public final class CustomChatScreen extends Screen {
 
         UUID requestId = UUID.randomUUID();
         pendingItemRequests.add(requestId);
-
-        ClientPacketDistributor.sendToServer(
-                new CreateItemTagPayload(
-                        requestId,
-                        inventorySlot
-                )
-        );
-
+        ClientPacketDistributor.sendToServer(new CreateItemTagPayload(requestId, inventorySlot));
         updateItemTagButtonState();
     }
 
@@ -406,79 +327,34 @@ public final class CustomChatScreen extends Screen {
             return;
         }
 
-        List<RenderRow> rows = buildRenderRows();
-
-        for (int i = 0; i < rows.size(); i++) {
-            RenderRow row = rows.get(i);
-
-            if (!row.message()) continue;
-            if (persistentId(row.entry()) != historyAnchorId) continue;
-            if (row.lineIndex() != historyAnchorLineIndex) continue;
-
-            scrollOffset = rows.size() - 1 - i;
-            scrollOffset = Math.min(
-                    scrollOffset,
-                    getMaxScrollOffset(rows)
-            );
-            scrollOffset = Math.max(
-                    0,
-                    scrollOffset
-            );
-
-            clearHistoryAnchor();
-            updateJumpButtonState();
-            return;
-        }
-
+        restoreViewportAnchor(new ViewportAnchor(historyAnchorId, historyAnchorLineIndex));
         clearHistoryAnchor();
-        scrollOffset = Math.min(
-                scrollOffset,
-                getMaxScrollOffset(rows)
-        );
         updateJumpButtonState();
     }
 
-    private void prefetchHistory(
-            double scrollY,
-            List<RenderRow> rows
-    ) {
+    private void prefetchHistory(double scrollY, List<RenderRow> rows) {
         int maxOffset = getMaxScrollOffset(rows);
-
         if (maxOffset <= 0) return;
 
         int threshold = getPrefetchThreshold(maxOffset);
 
-        if (scrollY > 0.0
-                && maxOffset - scrollOffset <= threshold) {
+        if (scrollY > 0.0 && maxOffset - scrollOffset <= threshold) {
             requestOlderHistory();
             return;
         }
 
-        if (scrollY < 0.0
-                && scrollOffset <= threshold) {
-            requestNewerHistory();
-        }
+        if (scrollY < 0.0 && scrollOffset <= threshold) requestNewerHistory();
     }
 
     private int getPrefetchThreshold(int maxOffset) {
-        return Math.max(
-                1,
-                Math.min(
-                        PREFETCH_TARGET_ROWS,
-                        Math.max(
-                                1,
-                                maxOffset / 4
-                        )
-                )
-        );
+        return Math.max(1, Math.min(PREFETCH_TARGET_ROWS, Math.max(1, maxOffset / 4)));
     }
 
     private void jumpToLatest() {
         clearSuggestions();
         clearHistoryAnchor();
 
-        if (!ChatClientState.hasNewerHistory()
-                && !ChatClientState.historyLoading()) {
+        if (!ChatClientState.hasNewerHistory() && !ChatClientState.historyLoading()) {
             jumpingToLatest = false;
             scrollOffset = 0;
             updateJumpButtonState();
@@ -491,120 +367,92 @@ public final class CustomChatScreen extends Screen {
     }
 
     private void requestLatestHistory() {
-        if (!jumpingToLatest) return;
-        if (!ChatClientState.beginLatestHistoryRequest()) return;
-
+        if (!jumpingToLatest || !ChatClientState.beginLatestHistoryRequest()) return;
         ClientPacketDistributor.sendToServer(
-                new RequestChatHistoryPayload(
-                        Long.MAX_VALUE,
-                        ChatClientState.initialHistoryLimit()
-                )
+                new RequestChatHistoryPayload(Long.MAX_VALUE, ChatClientState.initialHistoryLimit())
         );
     }
 
     private void updateJumpButtonState() {
+        if (isViewingLatest()) hasUnseenLiveMessages = false;
         if (jumpToLatestButton == null) return;
 
-        jumpToLatestButton.visible = scrollOffset > 0
-                || ChatClientState.hasNewerHistory()
-                || jumpingToLatest;
-
+        jumpToLatestButton.visible =
+                scrollOffset > 0 || ChatClientState.hasNewerHistory() || jumpingToLatest || hasUnseenLiveMessages;
         jumpToLatestButton.active = !jumpingToLatest;
     }
 
-    private boolean isMouseOverJumpButton(
-            double mouseX,
-            double mouseY
-    ) {
-        if (jumpToLatestButton == null
-                || !jumpToLatestButton.visible
-                || !jumpToLatestButton.active) {
-            return false;
-        }
+    private boolean isViewingLatest() {
+        return scrollOffset == 0 && !ChatClientState.hasNewerHistory() && !jumpingToLatest;
+    }
 
+    private boolean isMouseOverJumpButton(double mouseX, double mouseY) {
+        if (jumpToLatestButton == null || !jumpToLatestButton.visible || !jumpToLatestButton.active) return false;
         int x = getJumpButtonX();
         int y = getJumpButtonY();
-
-        return mouseX >= x
-                && mouseX < x + JUMP_BUTTON_SIZE
-                && mouseY >= y
-                && mouseY < y + JUMP_BUTTON_SIZE;
+        return mouseX >= x && mouseX < x + JUMP_BUTTON_SIZE && mouseY >= y && mouseY < y + JUMP_BUTTON_SIZE;
     }
 
     private boolean jumpButtonOverlapsRow(int y) {
-        if (jumpToLatestButton == null
-                || !jumpToLatestButton.visible) {
-            return false;
-        }
-
+        if (jumpToLatestButton == null || !jumpToLatestButton.visible) return false;
         int buttonTop = getJumpButtonY();
         int buttonBottom = buttonTop + JUMP_BUTTON_SIZE;
         int rowBottom = y + this.font.lineHeight;
+        return y < buttonBottom && rowBottom > buttonTop;
+    }
 
-        return y < buttonBottom
-                && rowBottom > buttonTop;
+    private void renderJumpButtonPulse(GuiGraphicsExtractor graphics) {
+        if (!hasUnseenLiveMessages || jumpToLatestButton == null || !jumpToLatestButton.visible) return;
+
+        int left = getJumpButtonX() - 1;
+        int top = getJumpButtonY() - 1;
+        int right = left + JUMP_BUTTON_SIZE + 2;
+        int bottom = top + JUMP_BUTTON_SIZE + 2;
+        int color = getJumpPulseColor();
+
+        graphics.fill(left, top, right, top + 1, color);
+        graphics.fill(left, bottom - 1, right, bottom, color);
+        graphics.fill(left, top + 1, left + 1, bottom - 1, color);
+        graphics.fill(right - 1, top + 1, right, bottom - 1, color);
+    }
+
+    private int getJumpPulseColor() {
+        double pulse = (Math.sin(System.currentTimeMillis() / 180.0) + 1.0) * 0.5;
+        int green = 170 + (int) Math.round(85.0 * pulse);
+        int blue = 32 + (int) Math.round(53.0 * pulse);
+        return 0xFFFF0000 | (green << 8) | blue;
     }
 
     private void openItemPicker() {
-        if (this.minecraft == null
-                || this.minecraft.player == null
-                || this.messageInput == null) {
-            return;
-        }
-
+        if (this.minecraft == null || this.minecraft.player == null || this.messageInput == null) return;
         if (getItemTagUsage() >= ChatRules.MAX_ITEM_TAGS_PER_MESSAGE) return;
 
         int cursor = this.messageInput.getCursorPosition();
-
         this.messageInput.setHighlightPos(cursor);
         this.draft = this.messageInput.getValue();
         this.lastInputValue = this.draft;
         this.draftCursor = cursor;
         this.switchingToItemPicker = true;
-
-        this.minecraft.setScreen(
-                new ItemTagSelectionScreen(
-                        this,
-                        this.minecraft.player
-                )
-        );
+        this.minecraft.setScreen(new ItemTagSelectionScreen(this, this.minecraft.player));
     }
 
     private void onInputChanged(String value) {
-        updateItemTagReferences(
-                this.lastInputValue,
-                value
-        );
-
+        updateItemTagReferences(this.lastInputValue, value);
         this.lastInputValue = value;
         this.draft = value;
         this.commandWarning = value.stripLeading().startsWith("/");
-
         updateItemTagButtonState();
         refreshSuggestions();
     }
 
-    private void updateItemTagReferences(
-            String oldValue,
-            String newValue
-    ) {
-        if (oldValue.equals(newValue)
-                || itemTagReferences.isEmpty()) {
-            return;
-        }
+    private void updateItemTagReferences(String oldValue, String newValue) {
+        if (oldValue.equals(newValue) || itemTagReferences.isEmpty()) return;
 
-        int prefix = findCommonPrefix(
-                oldValue,
-                newValue
-        );
-
+        int prefix = findCommonPrefix(oldValue, newValue);
         int oldEnd = oldValue.length();
         int newEnd = newValue.length();
 
-        while (oldEnd > prefix
-                && newEnd > prefix
-                && oldValue.charAt(oldEnd - 1)
-                == newValue.charAt(newEnd - 1)) {
+        while (oldEnd > prefix && newEnd > prefix && oldValue.charAt(oldEnd - 1) == newValue.charAt(newEnd - 1)) {
             oldEnd--;
             newEnd--;
         }
@@ -615,10 +463,7 @@ public final class CustomChatScreen extends Screen {
             ItemTagReference reference = itemTagReferences.get(i);
 
             if (oldEnd <= reference.start()) {
-                itemTagReferences.set(
-                        i,
-                        reference.shifted(delta)
-                );
+                itemTagReferences.set(i, reference.shifted(delta));
                 i++;
                 continue;
             }
@@ -631,66 +476,31 @@ public final class CustomChatScreen extends Screen {
             itemTagReferences.remove(i);
         }
 
-        itemTagReferences.removeIf(
-                reference -> !matchesReference(
-                        newValue,
-                        reference
-                )
-        );
-
-        itemTagReferences.sort(
-                Comparator.comparingInt(ItemTagReference::start)
-        );
+        itemTagReferences.removeIf(reference -> !matchesReference(newValue, reference));
+        itemTagReferences.sort(Comparator.comparingInt(ItemTagReference::start));
     }
 
-    private int findCommonPrefix(
-            String first,
-            String second
-    ) {
-        int length = Math.min(
-                first.length(),
-                second.length()
-        );
-
+    private int findCommonPrefix(String first, String second) {
+        int length = Math.min(first.length(), second.length());
         int index = 0;
-
-        while (index < length
-                && first.charAt(index) == second.charAt(index)) {
-            index++;
-        }
-
+        while (index < length && first.charAt(index) == second.charAt(index)) index++;
         return index;
     }
 
-    private boolean matchesReference(
-            String content,
-            ItemTagReference reference
-    ) {
+    private boolean matchesReference(String content, ItemTagReference reference) {
         int start = reference.start();
         int end = reference.end();
-
-        if (start < 0
-                || start >= end
-                || end > content.length()) {
-            return false;
-        }
-
-        return content.substring(
-                start,
-                end
-        ).equals(reference.displayText());
+        if (start < 0 || start >= end || end > content.length()) return false;
+        return content.substring(start, end).equals(reference.displayText());
     }
 
     private void updateItemTagButtonState() {
         if (this.itemTagButton == null) return;
-
-        this.itemTagButton.active =
-                getItemTagUsage() < ChatRules.MAX_ITEM_TAGS_PER_MESSAGE;
+        this.itemTagButton.active = getItemTagUsage() < ChatRules.MAX_ITEM_TAGS_PER_MESSAGE;
     }
 
     private int getItemTagUsage() {
-        return itemTagReferences.size()
-                + pendingItemRequests.size();
+        return itemTagReferences.size() + pendingItemRequests.size();
     }
 
     private void refreshSuggestions() {
@@ -706,12 +516,7 @@ public final class CustomChatScreen extends Screen {
         requestedSuggestionQuery = active.query();
         playerSuggestions = List.of();
         selectedSuggestion = 0;
-
-        ClientPacketDistributor.sendToServer(
-                new RequestPlayerSuggestionsPayload(
-                        active.query()
-                )
-        );
+        ClientPacketDistributor.sendToServer(new RequestPlayerSuggestionsPayload(active.query()));
     }
 
     private TagQuery getActiveTagQuery() {
@@ -719,47 +524,24 @@ public final class CustomChatScreen extends Screen {
 
         int cursor = messageInput.getCursorPosition();
         String value = messageInput.getValue();
+        if (cursor < 0 || cursor > value.length()) return null;
 
-        if (cursor < 0
-                || cursor > value.length()) {
-            return null;
-        }
-
-        Matcher matcher = PLAYER_TAG_PATTERN.matcher(
-                value.substring(0, cursor)
-        );
-
+        Matcher matcher = PLAYER_TAG_PATTERN.matcher(value.substring(0, cursor));
         if (!matcher.find()) return null;
-
-        return new TagQuery(
-                matcher.start(1) - 1,
-                matcher.group(1)
-        );
+        return new TagQuery(matcher.start(1) - 1, matcher.group(1));
     }
 
     private void applySuggestion(int index) {
-        if (index < 0
-                || index >= playerSuggestions.size()) {
-            return;
-        }
+        if (index < 0 || index >= playerSuggestions.size()) return;
 
         TagQuery active = getActiveTagQuery();
-
         if (active == null) return;
 
         String value = messageInput.getValue();
         int cursor = messageInput.getCursorPosition();
-
-        String replacement =
-                "@" + playerSuggestions.get(index).name() + " ";
-
-        String newValue = value.substring(
-                0,
-                active.start()
-        ) + replacement + value.substring(cursor);
-
-        int newCursor =
-                active.start() + replacement.length();
+        String replacement = "@" + playerSuggestions.get(index).name() + " ";
+        String newValue = value.substring(0, active.start()) + replacement + value.substring(cursor);
+        int newCursor = active.start() + replacement.length();
 
         messageInput.setValue(newValue);
         messageInput.setCursorPosition(newCursor);
@@ -778,17 +560,9 @@ public final class CustomChatScreen extends Screen {
         if (this.messageInput == null) return;
 
         String content = this.messageInput.getValue();
+        if (content.isBlank() || content.stripLeading().startsWith("/")) return;
 
-        if (content.isBlank()) return;
-        if (content.stripLeading().startsWith("/")) return;
-
-        ClientPacketDistributor.sendToServer(
-                new SendChatPayload(
-                        content,
-                        List.copyOf(itemTagReferences)
-                )
-        );
-
+        ClientPacketDistributor.sendToServer(new SendChatPayload(content, List.copyOf(itemTagReferences)));
         this.messageInput.setValue("");
         this.itemTagReferences.clear();
         this.pendingItemRequests.clear();
@@ -799,21 +573,16 @@ public final class CustomChatScreen extends Screen {
         clearSuggestions();
         updateItemTagButtonState();
 
-        if (ClientConfig.CLOSE_CHAT_AFTER_SEND.get()
-                && this.minecraft != null) {
-            this.minecraft.setScreen(null);
-        }
+        if (ClientConfig.CLOSE_CHAT_AFTER_SEND.get() && this.minecraft != null) this.minecraft.setScreen(null);
     }
 
     private void requestOlderHistory() {
         if (!ChatClientState.beginOlderHistoryRequest()) return;
 
         captureHistoryAnchor();
-
         ClientPacketDistributor.sendToServer(
                 new RequestChatHistoryPayload(
-                        ChatClientState.oldestPersistentId(),
-                        ChatClientState.pagingHistoryLimit()
+                        ChatClientState.oldestPersistentId(), ChatClientState.pagingHistoryLimit()
                 )
         );
     }
@@ -822,53 +591,60 @@ public final class CustomChatScreen extends Screen {
         if (!ChatClientState.beginNewerHistoryRequest()) return;
 
         captureHistoryAnchor();
-
         ClientPacketDistributor.sendToServer(
                 new RequestNewerChatHistoryPayload(
-                        ChatClientState.newestPersistentId(),
-                        ChatClientState.pagingHistoryLimit()
+                        ChatClientState.newestPersistentId(), ChatClientState.pagingHistoryLimit()
                 )
         );
     }
 
-    private void captureHistoryAnchor() {
+    private ViewportAnchor captureViewportAnchor() {
         List<RenderRow> rows = buildRenderRows();
+        if (rows.isEmpty()) return null;
 
-        if (rows.isEmpty()) {
-            clearHistoryAnchor();
-            return;
-        }
+        int offset = Math.min(scrollOffset, getMaxScrollOffset(rows));
+        int start = rows.size() - 1 - offset;
+        int y = this.height - MESSAGE_BOTTOM_OFFSET;
 
-        int offset = Math.min(
-                scrollOffset,
-                getMaxScrollOffset(rows)
-        );
-
-        int start =
-                rows.size() - 1 - offset;
-
-        int y =
-                this.height - MESSAGE_BOTTOM_OFFSET;
-
-        for (int i = start;
-             i >= 0 && y >= MESSAGE_TOP;
-             i--) {
+        for (int i = start; i >= 0 && y >= MESSAGE_TOP; i--) {
             RenderRow row = rows.get(i);
 
             if (row.message()) {
                 long id = persistentId(row.entry());
-
-                if (id != Long.MIN_VALUE) {
-                    historyAnchorId = id;
-                    historyAnchorLineIndex = row.lineIndex();
-                    return;
-                }
+                if (id != Long.MIN_VALUE) return new ViewportAnchor(id, row.lineIndex());
             }
 
             y -= row.height();
         }
 
-        clearHistoryAnchor();
+        return null;
+    }
+
+    private void restoreViewportAnchor(ViewportAnchor anchor) {
+        List<RenderRow> rows = buildRenderRows();
+
+        for (int i = 0; i < rows.size(); i++) {
+            RenderRow row = rows.get(i);
+            if (!row.message()) continue;
+            if (persistentId(row.entry()) != anchor.messageId() || row.lineIndex() != anchor.lineIndex()) continue;
+
+            scrollOffset = Math.max(0, Math.min(rows.size() - 1 - i, getMaxScrollOffset(rows)));
+            return;
+        }
+
+        scrollOffset = Math.min(scrollOffset, getMaxScrollOffset(rows));
+    }
+
+    private void captureHistoryAnchor() {
+        ViewportAnchor anchor = captureViewportAnchor();
+
+        if (anchor == null) {
+            clearHistoryAnchor();
+            return;
+        }
+
+        historyAnchorId = anchor.messageId();
+        historyAnchorLineIndex = anchor.lineIndex();
     }
 
     private void clearHistoryAnchor() {
@@ -882,198 +658,97 @@ public final class CustomChatScreen extends Screen {
     }
 
     @Override
-    public void extractRenderState(
-            GuiGraphicsExtractor graphics,
-            int mouseX,
-            int mouseY,
-            float partialTick
-    ) {
+    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        List<RenderRow> rows = buildRenderRows();
+        scrollOffset = Math.min(scrollOffset, getMaxScrollOffset(rows));
         updateJumpButtonState();
 
-        super.extractRenderState(
-                graphics,
-                mouseX,
-                mouseY,
-                partialTick
-        );
-
-        List<RenderRow> rows = buildRenderRows();
-
-        scrollOffset = Math.min(
-                scrollOffset,
-                getMaxScrollOffset(rows)
-        );
-
-        renderMessages(
-                graphics,
-                mouseX,
-                mouseY,
-                rows
-        );
-
-        Component notice = this.commandWarning
-                ? Component.translatable(
-                "screen.njw_just_chat.command_notice"
-        )
-                : Component.translatable(
-                "screen.njw_just_chat.test_notice"
-        );
-
-        int color = this.commandWarning
-                ? 0xFFFFAA00
-                : 0xFFAAAAAA;
-
-        graphics.text(
-                this.font,
-                notice,
-                8,
-                this.height - 42,
-                color,
-                false
-        );
-
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        renderMessages(graphics, mouseX, mouseY, rows);
+        renderJumpButtonPulse(graphics);
+        renderNotice(graphics);
         renderSuggestions(graphics);
+    }
+
+    private void renderNotice(GuiGraphicsExtractor graphics) {
+        Component notice;
+        int color;
+
+        if (System.currentTimeMillis() < newMessageNoticeUntil) {
+            notice = Component.translatable("screen.njw_just_chat.new_message_notice");
+            color = NEW_MESSAGE_NOTICE_COLOR;
+        } else if (this.commandWarning) {
+            notice = Component.translatable("screen.njw_just_chat.command_notice");
+            color = COMMAND_NOTICE_COLOR;
+        } else {
+            notice = Component.translatable("screen.njw_just_chat.test_notice");
+            color = DEFAULT_NOTICE_COLOR;
+        }
+
+        graphics.text(this.font, notice, 8, this.height - 42, color, false);
     }
 
     private List<RenderRow> buildRenderRows() {
         List<RenderRow> rows = new ArrayList<>();
         int messageWidth = getMessageTextWidth();
         long readBoundaryId = ChatReadClientState.lastReadMessageId();
-
         boolean showReadBoundary =
-                ChatReadClientState.initialized()
-                        && ChatClientState.canDisplayReadBoundary(
-                        readBoundaryId
-                );
-
+                ChatReadClientState.initialized() && ChatClientState.canDisplayReadBoundary(readBoundaryId);
         boolean readBoundaryInserted = false;
 
         for (int i = 0; i < ChatClientState.size(); i++) {
             ChatClientEntry entry = ChatClientState.get(i);
             long persistentId = persistentId(entry);
 
-            if (showReadBoundary
-                    && !readBoundaryInserted
-                    && persistentId != Long.MIN_VALUE
+            if (showReadBoundary && !readBoundaryInserted && persistentId != Long.MIN_VALUE
                     && persistentId > readBoundaryId) {
                 Component boundary = Component.literal("--- ")
-                        .append(
-                                Component.translatable(
-                                        "screen.njw_just_chat.read_boundary"
-                                )
-                        )
+                        .append(Component.translatable("screen.njw_just_chat.read_boundary"))
                         .append(" ---");
-
-                rows.add(
-                        RenderRow.readBoundary(
-                                boundary.getVisualOrderText()
-                        )
-                );
-
+                rows.add(RenderRow.readBoundary(boundary.getVisualOrderText()));
                 readBoundaryInserted = true;
             }
 
             if (isFirstOfDate(i)) {
-                Component date = Component.literal(
-                        "--- "
-                                + ChatTimeFormatter.formatDate(
-                                entry.createdAt()
-                        )
-                                + " ---"
-                );
-
-                rows.add(
-                        RenderRow.date(
-                                date.getVisualOrderText()
-                        )
-                );
+                Component date = Component.literal("--- " + ChatTimeFormatter.formatDate(entry.createdAt()) + " ---");
+                rows.add(RenderRow.date(date.getVisualOrderText()));
             }
 
             Component message = createDisplayLine(entry);
+            List<FormattedCharSequence> lines = this.font.split(message, messageWidth);
 
-            List<FormattedCharSequence> lines = this.font.split(
-                    message,
-                    messageWidth
-            );
-
-            for (int lineIndex = 0;
-                 lineIndex < lines.size();
-                 lineIndex++) {
-                rows.add(
-                        RenderRow.message(
-                                entry,
-                                lines.get(lineIndex),
-                                lineIndex
-                        )
-                );
+            for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                rows.add(RenderRow.message(entry, lines.get(lineIndex), lineIndex));
             }
         }
 
         return rows;
     }
 
-    private void renderMessages(
-            GuiGraphicsExtractor graphics,
-            int mouseX,
-            int mouseY,
-            List<RenderRow> rows
-    ) {
+    private void renderMessages(GuiGraphicsExtractor graphics, int mouseX, int mouseY, List<RenderRow> rows) {
         if (rows.isEmpty()) return;
 
-        ChatClientEntry hoveredEntry = findHoveredEntry(
-                mouseX,
-                mouseY,
-                rows
-        );
-
+        ChatClientEntry hoveredEntry = findHoveredEntry(mouseX, mouseY, rows);
         int y = this.height - MESSAGE_BOTTOM_OFFSET;
         int start = rows.size() - 1 - scrollOffset;
         long now = System.currentTimeMillis();
         UUID playerUuid = getPlayerUuid();
-
         ActiveTextCollector textRenderer = graphics.textRenderer(
                 GuiGraphicsExtractor.HoveredTextEffects.TOOLTIP_AND_CURSOR
         );
 
-        for (int i = start;
-             i >= 0 && y >= MESSAGE_TOP;
-             i--) {
+        for (int i = start; i >= 0 && y >= MESSAGE_TOP; i--) {
             RenderRow row = rows.get(i);
 
             if (row.date() || row.readBoundary()) {
-                int x =
-                        (this.width - this.font.width(row.text())) / 2;
-
-                graphics.text(
-                        this.font,
-                        row.text(),
-                        x,
-                        y,
-                        0xFFAAAAAA,
-                        false
-                );
+                int x = (this.width - this.font.width(row.text())) / 2;
+                graphics.text(this.font, row.text(), x, y, 0xFFAAAAAA, false);
             } else {
-                textRenderer.accept(
-                        MESSAGE_LEFT,
-                        y,
-                        row.text()
-                );
+                textRenderer.accept(MESSAGE_LEFT, y, row.text());
 
-                if (row.firstLine()
-                        && !jumpButtonOverlapsRow(y)
-                        && sameEntry(
-                        row.entry(),
-                        hoveredEntry
-                )
-                        && canDelete(
-                        row.entry(),
-                        playerUuid,
-                        now
-                )) {
-                    renderDelete(
-                            graphics,
-                            y
-                    );
+                if (row.firstLine() && !jumpButtonOverlapsRow(y) && sameEntry(row.entry(), hoveredEntry)
+                        && canDelete(row.entry(), playerUuid, now)) {
+                    renderDelete(graphics, y);
                 }
             }
 
@@ -1081,55 +756,28 @@ public final class CustomChatScreen extends Screen {
         }
     }
 
-    private ChatClientEntry findHoveredEntry(
-            double mouseX,
-            double mouseY,
-            List<RenderRow> rows
-    ) {
-        int y =
-                this.height - MESSAGE_BOTTOM_OFFSET;
+    private ChatClientEntry findHoveredEntry(double mouseX, double mouseY, List<RenderRow> rows) {
+        int y = this.height - MESSAGE_BOTTOM_OFFSET;
+        int start = rows.size() - 1 - Math.min(scrollOffset, getMaxScrollOffset(rows));
 
-        int start = rows.size()
-                - 1
-                - Math.min(
-                scrollOffset,
-                getMaxScrollOffset(rows)
-        );
-
-        for (int i = start;
-             i >= 0 && y >= MESSAGE_TOP;
-             i--) {
+        for (int i = start; i >= 0 && y >= MESSAGE_TOP; i--) {
             RenderRow row = rows.get(i);
-
-            if (row.message()
-                    && isMouseOverRow(
-                    mouseX,
-                    mouseY,
-                    y
-            )) {
-                return row.entry();
-            }
-
+            if (row.message() && isMouseOverRow(mouseX, mouseY, y)) return row.entry();
             y -= row.height();
         }
 
         return null;
     }
 
-    private boolean sameEntry(
-            ChatClientEntry first,
-            ChatClientEntry second
-    ) {
+    private boolean sameEntry(ChatClientEntry first, ChatClientEntry second) {
         if (first == null || second == null) return false;
 
         if (first.isPlayer() && second.isPlayer()) {
-            return first.playerMessageId()
-                    == second.playerMessageId();
+            return first.playerMessageId() == second.playerMessageId();
         }
 
         if (first.isSystem() && second.isSystem()) {
-            return first.systemMessageId()
-                    == second.systemMessageId();
+            return first.systemMessageId() == second.systemMessageId();
         }
 
         return first == second;
@@ -1142,201 +790,83 @@ public final class CustomChatScreen extends Screen {
         return Long.MIN_VALUE;
     }
 
-    private void renderDelete(
-            GuiGraphicsExtractor graphics,
-            int y
-    ) {
-        Component delete = Component.translatable(
-                "screen.njw_just_chat.delete"
-        ).withStyle(
-                ChatFormatting.RED
-        );
-
-        int deleteX = this.width
-                - DELETE_RIGHT_MARGIN
-                - this.font.width(delete);
-
-        graphics.text(
-                this.font,
-                delete,
-                deleteX,
-                y,
-                0xFFFF5555,
-                false
-        );
+    private void renderDelete(GuiGraphicsExtractor graphics, int y) {
+        Component delete = Component.translatable("screen.njw_just_chat.delete").withStyle(ChatFormatting.RED);
+        int deleteX = this.width - DELETE_RIGHT_MARGIN - this.font.width(delete);
+        graphics.text(this.font, delete, deleteX, y, 0xFFFF5555, false);
     }
 
     private int getMessageTextWidth() {
-        Component delete = Component.translatable(
-                "screen.njw_just_chat.delete"
-        );
-
-        int deleteReserved = DELETE_RIGHT_MARGIN
-                + this.font.width(delete)
-                + 8;
-
-        int jumpReserved = JUMP_BUTTON_RIGHT_MARGIN
-                + JUMP_BUTTON_SIZE
-                + 8;
-
-        int reserved = Math.max(
-                deleteReserved,
-                jumpReserved
-        );
-
-        return Math.max(
-                40,
-                this.width - MESSAGE_LEFT - reserved
-        );
+        Component delete = Component.translatable("screen.njw_just_chat.delete");
+        int deleteReserved = DELETE_RIGHT_MARGIN + this.font.width(delete) + 8;
+        int jumpReserved = JUMP_BUTTON_RIGHT_MARGIN + JUMP_BUTTON_SIZE + 8;
+        int reserved = Math.max(deleteReserved, jumpReserved);
+        return Math.max(40, this.width - MESSAGE_LEFT - reserved);
     }
 
-    private void renderSuggestions(
-            GuiGraphicsExtractor graphics
-    ) {
+    private void renderSuggestions(GuiGraphicsExtractor graphics) {
         if (playerSuggestions.isEmpty()) return;
 
-        int inputY =
-                this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
-
+        int inputY = this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
         int width = getSuggestionBoxWidth();
-        int height =
-                playerSuggestions.size() * SUGGESTION_ROW_HEIGHT;
-
-        int top =
-                inputY - SUGGESTION_PADDING - height;
-
+        int height = playerSuggestions.size() * SUGGESTION_ROW_HEIGHT;
+        int top = inputY - SUGGESTION_PADDING - height;
         int left = INPUT_SIDE_MARGIN;
 
-        graphics.fill(
-                left,
-                top,
-                left + width,
-                top + height,
-                0xE0101010
-        );
+        graphics.fill(left, top, left + width, top + height, 0xE0101010);
 
         for (int i = 0; i < playerSuggestions.size(); i++) {
-            int y =
-                    top + i * SUGGESTION_ROW_HEIGHT;
-
-            PlayerSuggestionsPayload.Suggestion suggestion =
-                    playerSuggestions.get(i);
+            int y = top + i * SUGGESTION_ROW_HEIGHT;
+            PlayerSuggestionsPayload.Suggestion suggestion = playerSuggestions.get(i);
 
             if (i == selectedSuggestion) {
-                graphics.fill(
-                        left,
-                        y,
-                        left + width,
-                        y + SUGGESTION_ROW_HEIGHT,
-                        0xA0505050
-                );
+                graphics.fill(left, y, left + width, y + SUGGESTION_ROW_HEIGHT, 0xA0505050);
             }
 
-            int color = suggestion.online()
-                    ? ONLINE_SUGGESTION_COLOR
-                    : OFFLINE_SUGGESTION_COLOR;
-
-            graphics.text(
-                    this.font,
-                    "@" + suggestion.name(),
-                    left + 4,
-                    y + 2,
-                    color,
-                    false
-            );
+            int color = suggestion.online() ? ONLINE_SUGGESTION_COLOR : OFFLINE_SUGGESTION_COLOR;
+            graphics.text(this.font, "@" + suggestion.name(), left + 4, y + 2, color, false);
         }
     }
 
-    private int findSuggestionAt(
-            double mouseX,
-            double mouseY
-    ) {
+    private int findSuggestionAt(double mouseX, double mouseY) {
         if (playerSuggestions.isEmpty()) return -1;
 
-        int inputY =
-                this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
-
+        int inputY = this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
         int width = getSuggestionBoxWidth();
-        int height =
-                playerSuggestions.size() * SUGGESTION_ROW_HEIGHT;
-
-        int top =
-                inputY - SUGGESTION_PADDING - height;
-
+        int height = playerSuggestions.size() * SUGGESTION_ROW_HEIGHT;
+        int top = inputY - SUGGESTION_PADDING - height;
         int left = INPUT_SIDE_MARGIN;
 
-        if (mouseX < left || mouseX >= left + width) return -1;
-        if (mouseY < top || mouseY >= top + height) return -1;
+        if (mouseX < left || mouseX >= left + width || mouseY < top || mouseY >= top + height) return -1;
 
-        int index =
-                (int) ((mouseY - top) / SUGGESTION_ROW_HEIGHT);
-
-        if (index < 0
-                || index >= playerSuggestions.size()) {
-            return -1;
-        }
-
-        return index;
+        int index = (int) ((mouseY - top) / SUGGESTION_ROW_HEIGHT);
+        return index >= 0 && index < playerSuggestions.size() ? index : -1;
     }
 
     private int getSuggestionBoxWidth() {
         int width = SUGGESTION_MIN_WIDTH;
 
         for (PlayerSuggestionsPayload.Suggestion suggestion : playerSuggestions) {
-            width = Math.max(
-                    width,
-                    this.font.width(
-                            "@" + suggestion.name()
-                    ) + 8
-            );
+            width = Math.max(width, this.font.width("@" + suggestion.name()) + 8);
         }
 
-        return Math.min(
-                width,
-                getInputWidth()
-        );
+        return Math.min(width, getInputWidth());
     }
 
-    private ChatMessage findDeleteTarget(
-            double mouseX,
-            double mouseY
-    ) {
+    private ChatMessage findDeleteTarget(double mouseX, double mouseY) {
         UUID playerUuid = getPlayerUuid();
-
         if (playerUuid == null) return null;
 
         List<RenderRow> rows = buildRenderRows();
-
-        int y =
-                this.height - MESSAGE_BOTTOM_OFFSET;
-
-        int start = rows.size()
-                - 1
-                - Math.min(
-                scrollOffset,
-                getMaxScrollOffset(rows)
-        );
-
+        int y = this.height - MESSAGE_BOTTOM_OFFSET;
+        int start = rows.size() - 1 - Math.min(scrollOffset, getMaxScrollOffset(rows));
         long now = System.currentTimeMillis();
 
-        for (int i = start;
-             i >= 0 && y >= MESSAGE_TOP;
-             i--) {
+        for (int i = start; i >= 0 && y >= MESSAGE_TOP; i--) {
             RenderRow row = rows.get(i);
 
-            if (row.message()
-                    && row.firstLine()
-                    && !jumpButtonOverlapsRow(y)
-                    && canDelete(
-                    row.entry(),
-                    playerUuid,
-                    now
-            )
-                    && isMouseOverDelete(
-                    mouseX,
-                    mouseY,
-                    y
-            )) {
+            if (row.message() && row.firstLine() && !jumpButtonOverlapsRow(y)
+                    && canDelete(row.entry(), playerUuid, now) && isMouseOverDelete(mouseX, mouseY, y)) {
                 return row.entry().chatMessage();
             }
 
@@ -1347,105 +877,51 @@ public final class CustomChatScreen extends Screen {
     }
 
     private Component createDisplayLine(ChatClientEntry entry) {
-        String time =
-                ChatTimeFormatter.formatTime(
-                        entry.createdAt()
-                );
+        String time = ChatTimeFormatter.formatTime(entry.createdAt());
 
-        if (entry.isPlayer()
-                && entry.chatMessage().deleted()) {
-            return Component.literal(
-                    "[" + time + "] "
-            ).withStyle(
-                    ChatFormatting.GRAY
-            ).append(
-                    entry.displayMessage()
-            );
+        if (entry.isPlayer() && entry.chatMessage().deleted()) {
+            return Component.literal("[" + time + "] ").withStyle(ChatFormatting.GRAY).append(entry.displayMessage());
         }
 
-        return Component.literal(
-                "[" + time + "] "
-        ).append(
-                entry.displayMessage()
-        );
+        return Component.literal("[" + time + "] ").append(entry.displayMessage());
     }
 
-    private boolean canDelete(
-            ChatClientEntry entry,
-            UUID playerUuid,
-            long now
-    ) {
-        return playerUuid != null
-                && entry != null
-                && entry.isPlayer()
-                && entry.chatMessage().canDelete(
-                playerUuid,
-                now
-        );
+    private boolean canDelete(ChatClientEntry entry, UUID playerUuid, long now) {
+        return playerUuid != null && entry != null && entry.isPlayer()
+                && entry.chatMessage().canDelete(playerUuid, now);
     }
 
-    private boolean isMouseOverRow(
-            double mouseX,
-            double mouseY,
-            int y
-    ) {
-        return mouseX >= MESSAGE_LEFT
-                && mouseX < this.width - DELETE_RIGHT_MARGIN
-                && mouseY >= y
-                && mouseY < y + this.font.lineHeight;
+    private boolean isMouseOverRow(double mouseX, double mouseY, int y) {
+        return mouseX >= MESSAGE_LEFT && mouseX < this.width - DELETE_RIGHT_MARGIN
+                && mouseY >= y && mouseY < y + this.font.lineHeight;
     }
 
-    private boolean isMouseOverDelete(
-            double mouseX,
-            double mouseY,
-            int y
-    ) {
-        Component delete = Component.translatable(
-                "screen.njw_just_chat.delete"
-        );
-
-        int deleteX = this.width
-                - DELETE_RIGHT_MARGIN
-                - this.font.width(delete);
-
-        return mouseX >= deleteX
-                && mouseX < this.width - DELETE_RIGHT_MARGIN
-                && mouseY >= y
-                && mouseY < y + this.font.lineHeight;
+    private boolean isMouseOverDelete(double mouseX, double mouseY, int y) {
+        Component delete = Component.translatable("screen.njw_just_chat.delete");
+        int deleteX = this.width - DELETE_RIGHT_MARGIN - this.font.width(delete);
+        return mouseX >= deleteX && mouseX < this.width - DELETE_RIGHT_MARGIN
+                && mouseY >= y && mouseY < y + this.font.lineHeight;
     }
 
     private UUID getPlayerUuid() {
-        if (this.minecraft == null
-                || this.minecraft.player == null) {
-            return null;
-        }
-
+        if (this.minecraft == null || this.minecraft.player == null) return null;
         return this.minecraft.player.getUUID();
     }
 
     private int getItemButtonX() {
-        return this.width
-                - INPUT_SIDE_MARGIN
-                - ITEM_BUTTON_WIDTH;
+        return this.width - INPUT_SIDE_MARGIN - ITEM_BUTTON_WIDTH;
     }
 
     private int getInputWidth() {
-        return getItemButtonX()
-                - INPUT_GAP
-                - INPUT_SIDE_MARGIN;
+        return getItemButtonX() - INPUT_GAP - INPUT_SIDE_MARGIN;
     }
 
     private int getJumpButtonX() {
-        return this.width
-                - JUMP_BUTTON_RIGHT_MARGIN
-                - JUMP_BUTTON_SIZE;
+        return this.width - JUMP_BUTTON_RIGHT_MARGIN - JUMP_BUTTON_SIZE;
     }
 
     private int getJumpButtonY() {
-        return this.height
-                - MESSAGE_BOTTOM_OFFSET
-                - JUMP_BUTTON_SIZE
-                - JUMP_BUTTON_GAP;
+        return this.height - MESSAGE_BOTTOM_OFFSET - JUMP_BUTTON_SIZE - JUMP_BUTTON_GAP;
     }
 
     private int getMaxScrollOffset(List<RenderRow> rows) {
@@ -1453,10 +929,7 @@ public final class CustomChatScreen extends Screen {
 
         int availableHeight = Math.max(
                 MESSAGE_LINE_HEIGHT,
-                this.height
-                        - MESSAGE_BOTTOM_OFFSET
-                        - MESSAGE_TOP
-                        + MESSAGE_LINE_HEIGHT
+                this.height - MESSAGE_BOTTOM_OFFSET - MESSAGE_TOP + MESSAGE_LINE_HEIGHT
         );
 
         int usedHeight = 0;
@@ -1464,75 +937,35 @@ public final class CustomChatScreen extends Screen {
 
         for (RenderRow row : rows) {
             if (usedHeight + row.height() > availableHeight) break;
-
             usedHeight += row.height();
             visibleRows++;
         }
 
-        return Math.max(
-                0,
-                rows.size() - Math.max(
-                        1,
-                        visibleRows
-                )
-        );
+        return Math.max(0, rows.size() - Math.max(1, visibleRows));
     }
 
     private boolean isFirstOfDate(int index) {
-        if (index == 0) {
-            return !ChatClientState.hasOlderHistory();
-        }
-
+        if (index == 0) return !ChatClientState.hasOlderHistory();
         return !ChatTimeFormatter.isSameDate(
-                ChatClientState.get(index).createdAt(),
-                ChatClientState.get(index - 1).createdAt()
+                ChatClientState.get(index).createdAt(), ChatClientState.get(index - 1).createdAt()
         );
     }
 
-    private record TagQuery(
-            int start,
-            String query
-    ) {}
+    private record TagQuery(int start, String query) {}
 
-    private record RenderRow(
-            ChatClientEntry entry,
-            FormattedCharSequence text,
-            RowType type,
-            int lineIndex
-    ) {
-        private static RenderRow message(
-                ChatClientEntry entry,
-                FormattedCharSequence text,
-                int lineIndex
-        ) {
-            return new RenderRow(
-                    entry,
-                    text,
-                    RowType.MESSAGE,
-                    lineIndex
-            );
+    private record ViewportAnchor(long messageId, int lineIndex) {}
+
+    private record RenderRow(ChatClientEntry entry, FormattedCharSequence text, RowType type, int lineIndex) {
+        private static RenderRow message(ChatClientEntry entry, FormattedCharSequence text, int lineIndex) {
+            return new RenderRow(entry, text, RowType.MESSAGE, lineIndex);
         }
 
-        private static RenderRow date(
-                FormattedCharSequence text
-        ) {
-            return new RenderRow(
-                    null,
-                    text,
-                    RowType.DATE,
-                    -1
-            );
+        private static RenderRow date(FormattedCharSequence text) {
+            return new RenderRow(null, text, RowType.DATE, -1);
         }
 
-        private static RenderRow readBoundary(
-                FormattedCharSequence text
-        ) {
-            return new RenderRow(
-                    null,
-                    text,
-                    RowType.READ_BOUNDARY,
-                    -1
-            );
+        private static RenderRow readBoundary(FormattedCharSequence text) {
+            return new RenderRow(null, text, RowType.READ_BOUNDARY, -1);
         }
 
         private boolean message() {
@@ -1548,17 +981,12 @@ public final class CustomChatScreen extends Screen {
         }
 
         private boolean firstLine() {
-            return message()
-                    && lineIndex == 0;
+            return message() && lineIndex == 0;
         }
 
         private int height() {
             if (date()) return DATE_LINE_HEIGHT;
-
-            if (readBoundary()) {
-                return READ_BOUNDARY_LINE_HEIGHT;
-            }
-
+            if (readBoundary()) return READ_BOUNDARY_LINE_HEIGHT;
             return MESSAGE_LINE_HEIGHT;
         }
     }
