@@ -15,7 +15,16 @@ public final class VanillaChatCapture {
     @SubscribeEvent
     public static void onSystemMessage(ClientChatReceivedEvent.System event) {
         if (suppressionDepth > 0 || event.isOverlay()) return;
-        if (ChatClientState.findRecentSystem(event.getMessage()) != null) event.setCanceled(true);
+
+        if (ChatClientState.consumeRecentPersistentSystem(event.getMessage())) {
+            event.setCanceled(true);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        ChatClientState.rememberVanillaSystem(event.getMessage(), now);
+        ChatClientState.addVanilla(event.getMessage(), now);
+        handleDisplay(event, now);
     }
 
     @SubscribeEvent
@@ -23,10 +32,10 @@ public final class VanillaChatCapture {
         if (suppressionDepth > 0) return;
         long now = System.currentTimeMillis();
         ChatClientState.addVanilla(event.getMessage(), now);
-        handlePlayerDisplay(event, now);
+        handleDisplay(event, now);
     }
 
-    private static void handlePlayerDisplay(ClientChatReceivedEvent event, long createdAt) {
+    private static void handleDisplay(ClientChatReceivedEvent event, long createdAt) {
         Minecraft minecraft = Minecraft.getInstance();
 
         if (minecraft.screen instanceof CustomChatScreen) {

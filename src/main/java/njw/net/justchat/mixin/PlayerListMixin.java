@@ -15,7 +15,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class PlayerListMixin {
     @Inject(
             method = "broadcastSystemMessage(Lnet/minecraft/network/chat/Component;Z)V",
-            at = @At("HEAD")
+            at = @At("HEAD"),
+            cancellable = true
     )
     private void njwJustChat$saveSystemMessage(Component message, boolean overlay, CallbackInfo ci) {
         if (overlay) return;
@@ -23,5 +24,6 @@ public abstract class PlayerListMixin {
         ChatSavedData data = ChatSavedData.get(playerList.getServer());
         SystemChatMessage saved = data.addSystem(message, System.currentTimeMillis());
         PacketDistributor.sendToAllPlayers(new NewSystemChatPayload(saved));
+        ci.cancel();
     }
 }

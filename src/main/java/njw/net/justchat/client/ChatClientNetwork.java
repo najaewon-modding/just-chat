@@ -82,8 +82,9 @@ public final class ChatClientNetwork {
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
         if (screen != null) screen.beforeLivePersistentMessage(false);
-        ChatClientState.addSystem(message);
+        ChatClientState.SystemAddResult result = ChatClientState.addSystem(message);
         if (screen != null) screen.afterLivePersistentMessage(message.id());
+        if (result != ChatClientState.SystemAddResult.NEW) return;
         if (minecraft.player == null || screen != null) return;
         String time = ChatTimeFormatter.formatTime(message.createdAt());
         Component line = Component.literal("[" + time + "] ").append(message.content().copy());
