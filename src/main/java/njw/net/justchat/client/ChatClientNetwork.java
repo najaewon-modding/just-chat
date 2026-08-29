@@ -1,6 +1,5 @@
 package njw.net.justchat.client;
 
-import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
@@ -19,12 +18,9 @@ import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.NewSystemChatPayload;
 import njw.net.justchat.network.PlayerPresencePayload;
 import njw.net.justchat.network.PlayerSuggestionsPayload;
-import org.slf4j.Logger;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
 public final class ChatClientNetwork {
-    private static final Logger LOGGER = LogUtils.getLogger();
-
     private ChatClientNetwork() {}
 
     @SubscribeEvent
@@ -52,16 +48,18 @@ public final class ChatClientNetwork {
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
         boolean ownMessage = minecraft.player != null
                 && minecraft.player.getUUID().equals(message.senderUuid());
+
         if (screen != null) screen.beforeLivePersistentMessage(ownMessage);
         ChatClientState.addPlayer(message);
         PlayerPresenceClientState.requestForMessage(message);
         MentionNotifier.notifyIfMentioned(message);
         if (screen != null) screen.afterLivePersistentMessage(message.id());
         if (minecraft.player == null || screen != null) return;
+
         String time = ChatTimeFormatter.formatTime(message.createdAt());
         Component content = ChatClientEntry.player(message).displayMessage();
         Component line = Component.literal("[" + time + "] ").append(content);
-        VanillaChatCapture.runSuppressed(() -> minecraft.player.sendSystemMessage(line));
+        minecraft.player.sendSystemMessage(line);
     }
 
     private static void handleChatDeleted(ChatDeletedPayload payload, IPayloadContext context) {
@@ -75,6 +73,7 @@ public final class ChatClientNetwork {
                 payload.systemMessages(),
                 payload.hasMore()
         );
+
         if (!accepted) return;
         PlayerPresenceClientState.requestForMessages(payload.messages());
         Minecraft minecraft = Minecraft.getInstance();
@@ -83,41 +82,17 @@ public final class ChatClientNetwork {
 
     private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
         SystemChatMessage message = payload.message();
-
-        LOGGER.info(
-                "[JCDBG][CLIENT_PAYLOAD] id={} text={}",
-                message.id(),
-                message.content().getString()
-        );
-
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
+
         if (screen != null) screen.beforeLivePersistentMessage(false);
-
-        ChatClientState.SystemAddResult result = ChatClientState.addSystem(message);
-
-        LOGGER.info(
-                "[JCDBG][CLIENT_ADD_RESULT] id={} result={} screen={} text={}",
-                message.id(),
-                result,
-                screen != null,
-                message.content().getString()
-        );
-
+        boolean isNew = ChatClientState.addSystem(message);
         if (screen != null) screen.afterLivePersistentMessage(message.id());
-        if (result != ChatClientState.SystemAddResult.NEW) return;
-        if (minecraft.player == null || screen != null) return;
+        if (!isNew || minecraft.player == null || screen != null) return;
 
         String time = ChatTimeFormatter.formatTime(message.createdAt());
         Component line = Component.literal("[" + time + "] ").append(message.content().copy());
-
-        LOGGER.info(
-                "[JCDBG][CLIENT_DISPLAY] id={} text={}",
-                message.id(),
-                line.getString()
-        );
-
-        VanillaChatCapture.runSuppressed(() -> minecraft.player.sendSystemMessage(line));
+        minecraft.player.sendSystemMessage(line);
     }
 
     private static void handleChatReadState(ChatReadStatePayload payload, IPayloadContext context) {

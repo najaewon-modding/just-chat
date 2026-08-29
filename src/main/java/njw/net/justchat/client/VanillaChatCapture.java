@@ -29,8 +29,4 @@ public final class VanillaChatCapture {
         Component line = Component.literal("[" + time + "] ").append(event.getMessage().copy());
         event.setMessage(line);
     }
-
-    public static void runSuppressed(Runnable action) {
-        action.run();
-    }
 }

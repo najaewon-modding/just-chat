@@ -59,7 +59,7 @@ public record ChatClientEntry(
         if (type == Type.VANILLA) return vanillaMessage;
 
         if (chatMessage.deleted()) {
-            return Component.literal("<" + chatMessage.senderName() + ">")
+            return Component.literal("<" + chatMessage.senderName() + "> ")
                     .withStyle(ChatFormatting.GRAY)
                     .append(Component.translatable("screen.njw_just_chat.deleted_message")
                             .withStyle(ChatFormatting.GRAY));
@@ -70,7 +70,7 @@ public record ChatClientEntry(
 
     private Component createPlayerMessage() {
         String content = chatMessage.content();
-        MutableComponent result = Component.literal("<" + chatMessage.senderName() + ">");
+        MutableComponent result = Component.literal("<" + chatMessage.senderName() + "> ");
         List<MessageSpan> spans = new ArrayList<>();
 
         for (PlayerTag tag : chatMessage.playerTags()) {
@@ -95,7 +95,11 @@ public record ChatClientEntry(
 
         for (MessageSpan span : spans) {
             if (span.start() < cursor) continue;
-            if (cursor < span.start()) result.append(Component.literal(content.substring(cursor, span.start())));
+
+            if (cursor < span.start()) {
+                result.append(Component.literal(content.substring(cursor, span.start())));
+            }
+
             result.append(span.component());
             cursor = span.end();
         }

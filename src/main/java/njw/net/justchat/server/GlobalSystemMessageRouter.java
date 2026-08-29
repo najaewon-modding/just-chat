@@ -1,6 +1,5 @@
 package njw.net.justchat.server;
 
-import com.mojang.logging.LogUtils;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -12,7 +11,6 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import njw.net.justchat.data.ChatSavedData;
 import njw.net.justchat.data.SystemChatMessage;
 import njw.net.justchat.network.NewSystemChatPayload;
-import org.slf4j.Logger;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -28,7 +26,6 @@ import java.util.UUID;
 
 @EventBusSubscriber(modid = "njw_just_chat")
 public final class GlobalSystemMessageRouter {
-    private static final Logger LOGGER = LogUtils.getLogger();
     private static final ThreadLocal<Deque<GlobalContext>> GLOBAL_CONTEXT =
             ThreadLocal.withInitial(ArrayDeque::new);
     private static final ThreadLocal<SelectorContext> SELECTOR_CONTEXT = new ThreadLocal<>();
@@ -44,13 +41,8 @@ public final class GlobalSystemMessageRouter {
         MessageGroup group = batch.groups.computeIfAbsent(key, ignored -> new MessageGroup());
         group.explicitCandidate = true;
 
-        if (group.explicitBase == null) {
-            group.explicitBase = message.copy();
-        }
-
-        if (group.explicitExpected == null) {
-            group.explicitExpected = onlinePlayers(server);
-        }
+        if (group.explicitBase == null) group.explicitBase = message.copy();
+        if (group.explicitExpected == null) group.explicitExpected = onlinePlayers(server);
 
         if (!group.markerAdded) {
             group.markerAdded = true;
@@ -71,25 +63,18 @@ public final class GlobalSystemMessageRouter {
             MinecraftServer server,
             Collection<ServerPlayer> targets
     ) {
-        Set<UUID> recipients = new HashSet<>();
-
-        for (ServerPlayer player : targets) {
-            recipients.add(player.getUUID());
-        }
-
-        if (recipients.isEmpty()) return;
-
-        LOGGER.info(
-                "[JCDBG][SELECTOR_GLOBAL_BEGIN] recipients={}",
-                recipients.size()
-        );
-
-        SELECTOR_CONTEXT.set(new SelectorContext(server, recipients, new HashSet<>()));
+        Set<UUID> expected = new HashSet<>();
+        for (ServerPlayer player : targets) expected.add(player.getUUID());
+        if (expected.isEmpty()) return;
+        SELECTOR_CONTEXT.set(new SelectorContext(server, expected, new HashSet<>()));
     }
 
-    public static boolean capture(ServerPlayer player, Component message, boolean overlay) {
-        if (overlay || BYPASS_DEPTH.get() > 0) return false;
-
+    public static boolean capture(
+            ServerPlayer player,
+            Component message,
+            boolean accepted
+    ) {
+        if (BYPASS_DEPTH.get() > 0) return false;
         MinecraftServer server = player.level().getServer();
         PendingBatch batch = PENDING.computeIfAbsent(server, ignored -> new PendingBatch());
         GlobalContext globalContext = currentGlobalContext(server);
@@ -98,16 +83,16 @@ public final class GlobalSystemMessageRouter {
         if (globalContext != null) {
             String key = globalContext.key();
             MessageGroup group = batch.groups.computeIfAbsent(key, ignored -> new MessageGroup());
-            boolean same = group.explicitComponent == null || group.explicitComponent.equals(message);
-            group.explicitRecipients.add(player.getUUID());
+            group.explicitAttempted.add(player.getUUID());
+            if (accepted) group.explicitRecipients.add(player.getUUID());
 
             if (group.explicitComponent == null) {
                 group.explicitComponent = copy;
-            } else if (!same) {
+            } else if (!group.explicitComponent.equals(message)) {
                 group.uniformExplicit = false;
             }
 
-            batch.entries.add(new Delivery(key, player, copy, DeliveryType.EXPLICIT));
+            batch.entries.add(new Delivery(key, player, copy, DeliveryType.EXPLICIT, accepted));
             return true;
         }
 
@@ -116,9 +101,9 @@ public final class GlobalSystemMessageRouter {
         if (selectorContext != null) {
             String key = message.getString();
             MessageGroup group = batch.groups.computeIfAbsent(key, ignored -> new MessageGroup());
-            boolean same = group.selectorComponent == null || group.selectorComponent.equals(message);
             group.selectorCandidate = true;
-            group.selectorRecipients.add(player.getUUID());
+            group.selectorAttempted.add(player.getUUID());
+            if (accepted) group.selectorRecipients.add(player.getUUID());
 
             if (group.selectorExpected == null) {
                 group.selectorExpected = new HashSet<>(selectorContext.expected());
@@ -126,22 +111,14 @@ public final class GlobalSystemMessageRouter {
 
             if (group.selectorComponent == null) {
                 group.selectorComponent = copy;
-            } else if (!same) {
+            } else if (!group.selectorComponent.equals(message)) {
                 group.uniformSelector = false;
             }
 
-            batch.entries.add(new Delivery(key, player, copy, DeliveryType.SELECTOR));
-            selectorContext.captured().add(player.getUUID());
+            batch.entries.add(new Delivery(key, player, copy, DeliveryType.SELECTOR, accepted));
+            selectorContext.processed().add(player.getUUID());
 
-            LOGGER.info(
-                    "[JCDBG][ROUTER_CAPTURE_SELECTOR] player={} count={} expected={} text={}",
-                    player.getPlainTextName(),
-                    group.selectorRecipients.size(),
-                    group.selectorExpected.size(),
-                    key
-            );
-
-            if (selectorContext.captured().containsAll(selectorContext.expected())) {
+            if (selectorContext.processed().containsAll(selectorContext.expected())) {
                 SELECTOR_CONTEXT.remove();
             }
 
@@ -150,20 +127,18 @@ public final class GlobalSystemMessageRouter {
 
         String key = message.getString();
         MessageGroup group = batch.groups.computeIfAbsent(key, ignored -> new MessageGroup());
-        boolean same = group.directComponent == null || group.directComponent.equals(message);
-        group.directRecipients.add(player.getUUID());
+        group.directAttempted.add(player.getUUID());
+        if (accepted) group.directRecipients.add(player.getUUID());
 
-        if (group.directExpected == null) {
-            group.directExpected = onlinePlayers(server);
-        }
+        if (group.directExpected == null) group.directExpected = onlinePlayers(server);
 
         if (group.directComponent == null) {
             group.directComponent = copy;
-        } else if (!same) {
+        } else if (!group.directComponent.equals(message)) {
             group.uniformDirect = false;
         }
 
-        batch.entries.add(new Delivery(key, player, copy, DeliveryType.DIRECT));
+        batch.entries.add(new Delivery(key, player, copy, DeliveryType.DIRECT, accepted));
         return true;
     }
 
@@ -193,29 +168,9 @@ public final class GlobalSystemMessageRouter {
         PendingBatch batch = PENDING.remove(server);
         GLOBAL_CONTEXT.remove();
         SELECTOR_CONTEXT.remove();
-
         if (batch == null) return;
 
         Set<String> published = new HashSet<>();
-
-        for (Map.Entry<String, MessageGroup> entry : batch.groups.entrySet()) {
-            MessageGroup group = entry.getValue();
-
-            LOGGER.info(
-                    "[JCDBG][ROUTER_DECISION] explicit={} selector={} direct={} expRec={} selRec={} directRec={} "
-                            + "expExpected={} selExpected={} directExpected={} text={}",
-                    isExplicitGlobal(group),
-                    isSelectorGlobal(group),
-                    isDirectGlobal(group),
-                    group.explicitRecipients.size(),
-                    group.selectorRecipients.size(),
-                    group.directRecipients.size(),
-                    size(group.explicitExpected),
-                    size(group.selectorExpected),
-                    size(group.directExpected),
-                    entry.getKey()
-            );
-        }
 
         for (PendingEntry entry : batch.entries) {
             MessageGroup group = batch.groups.get(entry.key());
@@ -226,10 +181,7 @@ public final class GlobalSystemMessageRouter {
             boolean directGlobal = isDirectGlobal(group);
 
             if (entry instanceof GlobalMarker) {
-                if (explicitGlobal && published.add(entry.key())) {
-                    publishPreferred(server, group);
-                }
-
+                if (explicitGlobal && published.add(entry.key())) publishPreferred(server, group);
                 continue;
             }
 
@@ -241,7 +193,6 @@ public final class GlobalSystemMessageRouter {
                 } else {
                     replay(delivery);
                 }
-
                 continue;
             }
 
@@ -251,7 +202,6 @@ public final class GlobalSystemMessageRouter {
                 } else {
                     replay(delivery);
                 }
-
                 continue;
             }
 
@@ -267,7 +217,7 @@ public final class GlobalSystemMessageRouter {
         return matches(
                 group.explicitCandidate,
                 group.uniformExplicit,
-                group.explicitRecipients,
+                group.explicitAttempted,
                 group.explicitExpected,
                 false
         );
@@ -277,7 +227,7 @@ public final class GlobalSystemMessageRouter {
         return matches(
                 group.selectorCandidate,
                 group.uniformSelector,
-                group.selectorRecipients,
+                group.selectorAttempted,
                 group.selectorExpected,
                 false
         );
@@ -287,7 +237,7 @@ public final class GlobalSystemMessageRouter {
         return matches(
                 true,
                 group.uniformDirect,
-                group.directRecipients,
+                group.directAttempted,
                 group.directExpected,
                 true
         );
@@ -330,17 +280,9 @@ public final class GlobalSystemMessageRouter {
             Set<UUID> recipients
     ) {
         if (message == null) return;
-
         ChatSavedData data = ChatSavedData.get(server);
         SystemChatMessage saved = data.addSystem(message, System.currentTimeMillis());
         NewSystemChatPayload payload = new NewSystemChatPayload(saved);
-
-        LOGGER.info(
-                "[JCDBG][ROUTER_PUBLISH] id={} recipients={} text={}",
-                saved.id(),
-                recipients.size(),
-                saved.content().getString()
-        );
 
         for (UUID uuid : recipients) {
             ServerPlayer player = server.getPlayerList().getPlayer(uuid);
@@ -349,6 +291,7 @@ public final class GlobalSystemMessageRouter {
     }
 
     private static void replay(Delivery delivery) {
+        if (!delivery.accepted()) return;
         BYPASS_DEPTH.set(BYPASS_DEPTH.get() + 1);
 
         try {
@@ -374,10 +317,6 @@ public final class GlobalSystemMessageRouter {
         return players;
     }
 
-    private static int size(Set<UUID> values) {
-        return values == null ? -1 : values.size();
-    }
-
     private interface PendingEntry {
         String key();
     }
@@ -386,7 +325,8 @@ public final class GlobalSystemMessageRouter {
             String key,
             ServerPlayer player,
             Component message,
-            DeliveryType type
+            DeliveryType type,
+            boolean accepted
     ) implements PendingEntry {}
 
     private record GlobalMarker(String key) implements PendingEntry {}
@@ -396,7 +336,7 @@ public final class GlobalSystemMessageRouter {
     private record SelectorContext(
             MinecraftServer server,
             Set<UUID> expected,
-            Set<UUID> captured
+            Set<UUID> processed
     ) {}
 
     private enum DeliveryType {
@@ -418,6 +358,9 @@ public final class GlobalSystemMessageRouter {
         private Set<UUID> explicitExpected;
         private Set<UUID> selectorExpected;
         private Set<UUID> directExpected;
+        private final Set<UUID> explicitAttempted = new HashSet<>();
+        private final Set<UUID> selectorAttempted = new HashSet<>();
+        private final Set<UUID> directAttempted = new HashSet<>();
         private final Set<UUID> explicitRecipients = new HashSet<>();
         private final Set<UUID> selectorRecipients = new HashSet<>();
         private final Set<UUID> directRecipients = new HashSet<>();

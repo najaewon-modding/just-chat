@@ -9,11 +9,8 @@ import java.util.Comparator;
 import java.util.List;
 
 public final class ChatClientState {
-    private static final long SYSTEM_MATCH_WINDOW_MILLIS = 10_000L;
-    private static final long SYSTEM_MATCH_WINDOW_NANOS = 10_000_000_000L;
     private static final long HISTORY_REQUEST_TIMEOUT_NANOS = 1_000_000_000L;
     private static final int MAX_HISTORY_PAGE_SIZE = 100;
-    private static final int MAX_RECENT_SYSTEM_MESSAGES = 32;
     private static final int MAX_CACHED_ENTRIES = Math.max(
             20,
             Integer.getInteger("njw_just_chat.clientHistoryWindow", 2000)
@@ -24,8 +21,6 @@ public final class ChatClientState {
             Math.max(1, MAX_CACHED_ENTRIES / 4)
     );
     private static final List<ChatClientEntry> ENTRIES = new ArrayList<>();
-    private static final List<RecentPersistentSystem> RECENT_PERSISTENT_SYSTEMS = new ArrayList<>();
-    private static final List<RecentVanillaSystem> RECENT_VANILLA_SYSTEMS = new ArrayList<>();
     private static boolean historyInitialized;
     private static boolean historyLoading;
     private static boolean hasOlderHistory = true;
@@ -54,21 +49,13 @@ public final class ChatClientState {
         if (trimOldestToLimit()) hasOlderHistory = true;
     }
 
-    public static SystemAddResult addSystem(SystemChatMessage message) {
-        Long vanillaReceivedAt = consumeRecentVanillaSystem(message.content());
-        boolean replacedVanilla = vanillaReceivedAt != null;
-
-        if (replacedVanilla) {
-            removeMatchingVanilla(message, vanillaReceivedAt);
-        }
-
+    public static boolean addSystem(SystemChatMessage message) {
         int index = findSystem(message.id());
 
         if (index >= 0) {
             ENTRIES.set(index, ChatClientEntry.system(message));
             sort();
-            if (!replacedVanilla) rememberPersistentSystem(message);
-            return replacedVanilla ? SystemAddResult.REPLACED_VANILLA : SystemAddResult.DUPLICATE;
+            return false;
         }
 
         if (shouldAcceptNewPersistent(message.id())) {
@@ -77,9 +64,7 @@ public final class ChatClientState {
             if (trimOldestToLimit()) hasOlderHistory = true;
         }
 
-        if (replacedVanilla) return SystemAddResult.REPLACED_VANILLA;
-        rememberPersistentSystem(message);
-        return SystemAddResult.NEW;
+        return true;
     }
 
     public static void addVanilla(Component message, long createdAt) {
@@ -87,31 +72,6 @@ public final class ChatClientState {
         ENTRIES.add(ChatClientEntry.vanilla(message.copy(), createdAt));
         sort();
         if (trimOldestToLimit()) hasOlderHistory = true;
-    }
-
-    public static void rememberVanillaSystem(Component message, long receivedAtMillis) {
-        long now = System.nanoTime();
-        RECENT_VANILLA_SYSTEMS.add(new RecentVanillaSystem(message.copy(), receivedAtMillis, now));
-
-        while (RECENT_VANILLA_SYSTEMS.size() > MAX_RECENT_SYSTEM_MESSAGES) {
-            RECENT_VANILLA_SYSTEMS.removeFirst();
-        }
-
-        cleanupRecentSystems(now);
-    }
-
-    public static boolean consumeRecentPersistentSystem(Component message) {
-        long now = System.nanoTime();
-        cleanupRecentSystems(now);
-
-        for (int i = RECENT_PERSISTENT_SYSTEMS.size() - 1; i >= 0; i--) {
-            RecentPersistentSystem recent = RECENT_PERSISTENT_SYSTEMS.get(i);
-            if (!sameMessage(recent.message().content(), message)) continue;
-            RECENT_PERSISTENT_SYSTEMS.remove(i);
-            return true;
-        }
-
-        return false;
     }
 
     public static boolean beginInitialHistoryRequest() {
@@ -156,7 +116,7 @@ public final class ChatClientState {
         if (direction == HistoryDirection.LATEST) ENTRIES.clear();
 
         for (ChatMessage message : messages) putPlayer(message);
-        mergeHistorySystems(systemMessages);
+        for (SystemChatMessage message : systemMessages) putSystem(message);
 
         sort();
 
@@ -266,8 +226,6 @@ public final class ChatClientState {
 
     public static void clear() {
         ENTRIES.clear();
-        RECENT_PERSISTENT_SYSTEMS.clear();
-        RECENT_VANILLA_SYSTEMS.clear();
         historyInitialized = false;
         historyLoading = false;
         hasOlderHistory = true;
@@ -310,26 +268,16 @@ public final class ChatClientState {
             return false;
         }
 
-        if (historyLoading && (historyDirection == HistoryDirection.OLDER || historyDirection == HistoryDirection.NEWER)
-                && newest != Long.MIN_VALUE && id > newest) {
+        boolean paging = historyDirection == HistoryDirection.OLDER
+                || historyDirection == HistoryDirection.NEWER;
+
+        if (historyLoading && paging && newest != Long.MIN_VALUE && id > newest) {
             unseenNewerWhileLoading = true;
             return false;
         }
 
         if (hasNewerHistory && newest != Long.MIN_VALUE && id > newest) return false;
         return !hasOlderHistory || oldest == Long.MAX_VALUE || id >= oldest;
-    }
-
-    private static void mergeHistorySystems(List<SystemChatMessage> systemMessages) {
-        List<SystemChatMessage> newestFirst = new ArrayList<>(systemMessages);
-        newestFirst.sort(Comparator.comparingLong(SystemChatMessage::createdAt).reversed());
-
-        for (SystemChatMessage message : newestFirst) {
-            Long vanillaReceivedAt = consumeRecentVanillaSystem(message.content());
-            if (vanillaReceivedAt != null) removeMatchingVanilla(message, vanillaReceivedAt);
-        }
-
-        for (SystemChatMessage message : systemMessages) putSystem(message);
     }
 
     private static void putPlayer(ChatMessage message) {
@@ -386,55 +334,6 @@ public final class ChatClientState {
         return removedPersistent;
     }
 
-    private static void rememberPersistentSystem(SystemChatMessage message) {
-        long now = System.nanoTime();
-        RECENT_PERSISTENT_SYSTEMS.add(new RecentPersistentSystem(message, now));
-
-        while (RECENT_PERSISTENT_SYSTEMS.size() > MAX_RECENT_SYSTEM_MESSAGES) {
-            RECENT_PERSISTENT_SYSTEMS.removeFirst();
-        }
-
-        cleanupRecentSystems(now);
-    }
-
-    private static Long consumeRecentVanillaSystem(Component message) {
-        long now = System.nanoTime();
-        cleanupRecentSystems(now);
-
-        for (int i = RECENT_VANILLA_SYSTEMS.size() - 1; i >= 0; i--) {
-            RecentVanillaSystem recent = RECENT_VANILLA_SYSTEMS.get(i);
-            if (!sameMessage(recent.message(), message)) continue;
-            RECENT_VANILLA_SYSTEMS.remove(i);
-            return recent.receivedAtMillis();
-        }
-
-        return null;
-    }
-
-    private static void cleanupRecentSystems(long now) {
-        RECENT_PERSISTENT_SYSTEMS.removeIf(
-                recent -> now - recent.receivedAtNanos() > SYSTEM_MATCH_WINDOW_NANOS
-        );
-        RECENT_VANILLA_SYSTEMS.removeIf(
-                recent -> now - recent.receivedAtNanos() > SYSTEM_MATCH_WINDOW_NANOS
-        );
-    }
-
-    private static void removeMatchingVanilla(SystemChatMessage message, long receivedAtMillis) {
-        for (int i = ENTRIES.size() - 1; i >= 0; i--) {
-            ChatClientEntry entry = ENTRIES.get(i);
-            if (entry.type() != ChatClientEntry.Type.VANILLA) continue;
-            if (Math.abs(entry.createdAt() - receivedAtMillis) > SYSTEM_MATCH_WINDOW_MILLIS) continue;
-            if (!sameMessage(entry.vanillaMessage(), message.content())) continue;
-            ENTRIES.remove(i);
-            return;
-        }
-    }
-
-    private static boolean sameMessage(Component first, Component second) {
-        return first.getString().equals(second.getString());
-    }
-
     private static void sort() {
         List<ChatClientEntry> persistent = new ArrayList<>();
         List<ChatClientEntry> vanilla = new ArrayList<>();
@@ -464,12 +363,6 @@ public final class ChatClientState {
         return Long.MAX_VALUE;
     }
 
-    public enum SystemAddResult {
-        NEW,
-        REPLACED_VANILLA,
-        DUPLICATE
-    }
-
     private enum HistoryDirection {
         NONE,
         INITIAL,
@@ -477,8 +370,4 @@ public final class ChatClientState {
         NEWER,
         LATEST
     }
-
-    private record RecentPersistentSystem(SystemChatMessage message, long receivedAtNanos) {}
-
-    private record RecentVanillaSystem(Component message, long receivedAtMillis, long receivedAtNanos) {}
 }
