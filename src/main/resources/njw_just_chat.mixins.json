@@ -4,7 +4,9 @@
   "package": "njw.net.justchat.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "PlayerListMixin"
+    "EntityArgumentMixin",
+    "PlayerListMixin",
+    "ServerPlayerMixin"
   ],
   "client": [
     "MinecraftMixin"

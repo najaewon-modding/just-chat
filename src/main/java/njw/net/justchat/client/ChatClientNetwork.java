@@ -1,5 +1,6 @@
 package njw.net.justchat.client;
 
+import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
@@ -18,9 +19,12 @@ import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.NewSystemChatPayload;
 import njw.net.justchat.network.PlayerPresencePayload;
 import njw.net.justchat.network.PlayerSuggestionsPayload;
+import org.slf4j.Logger;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
 public final class ChatClientNetwork {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private ChatClientNetwork() {}
 
     @SubscribeEvent
@@ -79,15 +83,40 @@ public final class ChatClientNetwork {
 
     private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
         SystemChatMessage message = payload.message();
+
+        LOGGER.info(
+                "[JCDBG][CLIENT_PAYLOAD] id={} text={}",
+                message.id(),
+                message.content().getString()
+        );
+
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
         if (screen != null) screen.beforeLivePersistentMessage(false);
+
         ChatClientState.SystemAddResult result = ChatClientState.addSystem(message);
+
+        LOGGER.info(
+                "[JCDBG][CLIENT_ADD_RESULT] id={} result={} screen={} text={}",
+                message.id(),
+                result,
+                screen != null,
+                message.content().getString()
+        );
+
         if (screen != null) screen.afterLivePersistentMessage(message.id());
         if (result != ChatClientState.SystemAddResult.NEW) return;
         if (minecraft.player == null || screen != null) return;
+
         String time = ChatTimeFormatter.formatTime(message.createdAt());
         Component line = Component.literal("[" + time + "] ").append(message.content().copy());
+
+        LOGGER.info(
+                "[JCDBG][CLIENT_DISPLAY] id={} text={}",
+                message.id(),
+                line.getString()
+        );
+
         VanillaChatCapture.runSuppressed(() -> minecraft.player.sendSystemMessage(line));
     }
 

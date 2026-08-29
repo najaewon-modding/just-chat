@@ -8,34 +8,16 @@ import net.neoforged.neoforge.client.event.ClientChatReceivedEvent;
 
 @EventBusSubscriber(modid = "njw_just_chat")
 public final class VanillaChatCapture {
-    private static int suppressionDepth;
-
     private VanillaChatCapture() {}
 
     @SubscribeEvent
-    public static void onSystemMessage(ClientChatReceivedEvent.System event) {
-        if (suppressionDepth > 0 || event.isOverlay()) return;
-
-        if (ChatClientState.consumeRecentPersistentSystem(event.getMessage())) {
-            event.setCanceled(true);
-            return;
-        }
-
-        long now = System.currentTimeMillis();
-        ChatClientState.rememberVanillaSystem(event.getMessage(), now);
-        ChatClientState.addVanilla(event.getMessage(), now);
-        handleDisplay(event, now);
-    }
-
-    @SubscribeEvent
     public static void onPlayerMessage(ClientChatReceivedEvent.Player event) {
-        if (suppressionDepth > 0) return;
         long now = System.currentTimeMillis();
         ChatClientState.addVanilla(event.getMessage(), now);
-        handleDisplay(event, now);
+        handlePlayerDisplay(event, now);
     }
 
-    private static void handleDisplay(ClientChatReceivedEvent event, long createdAt) {
+    private static void handlePlayerDisplay(ClientChatReceivedEvent event, long createdAt) {
         Minecraft minecraft = Minecraft.getInstance();
 
         if (minecraft.screen instanceof CustomChatScreen) {
@@ -49,12 +31,6 @@ public final class VanillaChatCapture {
     }
 
     public static void runSuppressed(Runnable action) {
-        suppressionDepth++;
-
-        try {
-            action.run();
-        } finally {
-            suppressionDepth--;
-        }
+        action.run();
     }
 }
