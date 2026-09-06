@@ -14,4 +14,9 @@ public abstract class CustomChatScreenFilterLayoutMixin {
     private int njwJustChat$reserveFilterRow(int original) {
         return 36;
     }
+
+    @ModifyConstant(method = "getJumpButtonY", constant = @Constant(intValue = 4))
+    private int njwJustChat$adjustJumpButtonGap(int original) {
+        return 6;
+    }
 }

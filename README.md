@@ -9,7 +9,7 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 
 * Minecraft **26.1.2**
 * NeoForge **26.1.2.97+**
-* Just Chat **1.1.0-mc26.1.2**
+* Just Chat **1.1.1-mc26.1.2**
 * Mod ID: `njw_just_chat`
 * Java **25**
 * Languages: **한국어 / English**
@@ -66,6 +66,7 @@ Custom Chat을 새로 열면 기본 필터는 항상 **모든 채팅**입니다.
 * 일반 채팅과 명령어 입력을 분리합니다.
 * 과거 기록을 보고 있을 때 새 메시지가 도착하면 알림을 표시합니다.
 * `↓` 버튼으로 최신 메시지로 빠르게 이동할 수 있습니다.
+* 최신 메시지 이동 버튼은 아이템 버튼 위에 배치되어 하단 컨트롤과 자연스럽게 묶입니다.
 * 플레이어 메시지는 `<PlayerName> 메시지` 형식으로 표시됩니다.
 * Custom Chat이 열려 있을 때 vanilla chat HUD는 숨기되 vanilla history 자체는 유지합니다.
 * 배경 blur는 사용하지 않고 화면 dim 효과만 적용합니다.
@@ -117,14 +118,14 @@ Custom Chat을 새로 열면 기본 필터는 항상 **모든 채팅**입니다.
 ## Installation
 
 1. Minecraft **26.1.2**와 NeoForge **26.1.2.97 이상**을 설치합니다.
-2. GitHub Releases에서 `njw_just_chat-1.1.0-mc26.1.2.jar`를 다운로드합니다.
+2. GitHub Releases에서 `njw_just_chat-1.1.1-mc26.1.2.jar`를 다운로드합니다.
 3. JAR 파일을 클라이언트의 `mods` 폴더에 넣습니다.
 4. 멀티플레이 서버에서는 서버의 `mods` 폴더에도 동일한 JAR 파일을 넣습니다.
 5. Minecraft를 실행합니다.
 
 > GitHub가 자동으로 제공하는 `Source code (zip)`과 `Source code (tar.gz)`는 설치용 모드 파일이 아닙니다.
 >
-> Release의 **Assets**에 첨부된 `njw_just_chat-1.1.0-mc26.1.2.jar`를 사용하세요.
+> Release의 **Assets**에 첨부된 `njw_just_chat-1.1.1-mc26.1.2.jar`를 사용하세요.
 
 ## Usage
 
