@@ -15,6 +15,7 @@ import njw.net.justchat.network.ItemTagCreatedPayload;
 import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.PlayerPresencePayload;
 import njw.net.justchat.network.PlayerSuggestionsPayload;
+import njw.net.justchat.network.WhisperTargetsPayload;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
 public final class ChatClientNetwork {
@@ -26,6 +27,7 @@ public final class ChatClientNetwork {
         event.register(ChatHistoryPayload.TYPE, ChatClientNetwork::handleChatHistory);
         event.register(ChatReadStatePayload.TYPE, ChatClientNetwork::handleChatReadState);
         event.register(PlayerSuggestionsPayload.TYPE, ChatClientNetwork::handlePlayerSuggestions);
+        event.register(WhisperTargetsPayload.TYPE, ChatClientNetwork::handleWhisperTargets);
         event.register(PlayerPresencePayload.TYPE, ChatClientNetwork::handlePlayerPresence);
         event.register(ItemTagCreatedPayload.TYPE, ChatClientNetwork::handleItemTagCreated);
     }
@@ -33,6 +35,7 @@ public final class ChatClientNetwork {
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         VanillaChatBridge.clear();
+        WhisperTargetScreenExtension.clear();
         ChatClientState.clear();
         ChatReadClientState.clear();
         PlayerPresenceClientState.clear();
@@ -78,6 +81,10 @@ public final class ChatClientNetwork {
         if (minecraft.screen instanceof CustomChatScreen screen) {
             screen.updatePlayerSuggestions(payload.query(), payload.suggestions());
         }
+    }
+
+    private static void handleWhisperTargets(WhisperTargetsPayload payload, IPayloadContext context) {
+        WhisperTargetScreenExtension.updateTargets(payload.targets());
     }
 
     private static void handlePlayerPresence(PlayerPresencePayload payload, IPayloadContext context) {

@@ -1,6 +1,7 @@
 package njw.net.justchat.client;
 
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
@@ -13,6 +14,7 @@ import njw.net.justchat.data.PlayerTag;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 public record ChatClientEntry(
         ChatEntry persistentEntry,
@@ -66,8 +68,7 @@ public record ChatClientEntry(
 
         ChatMessage chatMessage = chatMessage();
         if (chatMessage.deleted()) {
-            return Component.literal("<" + chatMessage.senderName() + "> ")
-                    .withStyle(ChatFormatting.GRAY)
+            return createPlayerPrefix(chatMessage).withStyle(ChatFormatting.GRAY)
                     .append(Component.translatable("screen.njw_just_chat.deleted_message")
                             .withStyle(ChatFormatting.GRAY));
         }
@@ -77,7 +78,7 @@ public record ChatClientEntry(
 
     private Component createPlayerMessage(ChatMessage chatMessage) {
         String content = chatMessage.content();
-        MutableComponent result = Component.literal("<" + chatMessage.senderName() + "> ");
+        MutableComponent result = createPlayerPrefix(chatMessage);
         List<MessageSpan> spans = new ArrayList<>();
 
         for (PlayerTag tag : chatMessage.playerTags()) {
@@ -107,6 +108,16 @@ public record ChatClientEntry(
 
         if (cursor < content.length()) result.append(Component.literal(content.substring(cursor)));
         return result;
+    }
+
+    private MutableComponent createPlayerPrefix(ChatMessage chatMessage) {
+        if (!persistentEntry.isWhisper()) return Component.literal("<" + chatMessage.senderName() + "> ");
+        Minecraft minecraft = Minecraft.getInstance();
+        UUID viewerUuid = minecraft.player == null ? null : minecraft.player.getUUID();
+        if (viewerUuid != null && viewerUuid.equals(persistentEntry.sender().uuid())) {
+            return Component.translatable("screen.njw_just_chat.whisper_to", persistentEntry.targetName());
+        }
+        return Component.translatable("screen.njw_just_chat.whisper_from", persistentEntry.sender().name());
     }
 
     private Component createPlayerTagHover(PlayerTag tag) {

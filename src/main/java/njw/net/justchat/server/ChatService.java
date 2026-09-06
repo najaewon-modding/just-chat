@@ -30,6 +30,15 @@ public final class ChatService {
         return entry;
     }
 
+    public ChatEntry appendWhisper(UUID senderUuid, String senderName, UUID targetUuid, String targetName,
+                                   String content, long createdAt, List<PlayerTag> playerTags,
+                                   List<ItemTag> itemTags) {
+        ChatEntry entry = data.addWhisper(senderUuid, senderName, targetUuid, targetName, content, createdAt,
+                playerTags, itemTags);
+        ChatSyncService.publish(server, entry);
+        return entry;
+    }
+
     public ChatEntry appendSystem(Component content, ChatEntry.Sender sender, ChatEntry.Audience audience,
                                   ChatEntry.Origin origin) {
         ChatEntry entry = data.addSystem(content, System.currentTimeMillis(), sender, audience, origin);

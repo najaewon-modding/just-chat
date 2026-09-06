@@ -22,6 +22,8 @@ public record ChatEntry(
         Origin origin,
         String textContent,
         Component componentContent,
+        UUID targetUuid,
+        String targetName,
         long createdAt,
         boolean deleted,
         List<PlayerTag> playerTags,
@@ -43,6 +45,8 @@ public record ChatEntry(
             ORIGIN_CODEC.fieldOf("origin").forGetter(ChatEntry::origin),
             Codec.STRING.optionalFieldOf("textContent", "").forGetter(ChatEntry::textContent),
             ComponentSerialization.CODEC.optionalFieldOf("componentContent", Component.empty()).forGetter(ChatEntry::componentContent),
+            UUIDUtil.CODEC.optionalFieldOf("targetUuid", NIL_UUID).forGetter(ChatEntry::targetUuid),
+            Codec.STRING.optionalFieldOf("targetName", "").forGetter(ChatEntry::targetName),
             Codec.LONG.fieldOf("createdAt").forGetter(ChatEntry::createdAt),
             Codec.BOOL.optionalFieldOf("deleted", false).forGetter(ChatEntry::deleted),
             PlayerTag.CODEC.listOf().optionalFieldOf("playerTags", List.of()).forGetter(ChatEntry::playerTags),
@@ -59,12 +63,14 @@ public record ChatEntry(
             Origin origin = Origin.valueOf(ByteBufCodecs.STRING_UTF8.decode(buffer));
             String textContent = ByteBufCodecs.STRING_UTF8.decode(buffer);
             Component componentContent = ComponentSerialization.TRUSTED_CONTEXT_FREE_STREAM_CODEC.decode(buffer);
+            UUID targetUuid = UUIDUtil.STREAM_CODEC.decode(buffer);
+            String targetName = ByteBufCodecs.STRING_UTF8.decode(buffer);
             long createdAt = ByteBufCodecs.VAR_LONG.decode(buffer);
             boolean deleted = ByteBufCodecs.BOOL.decode(buffer);
             List<PlayerTag> playerTags = PLAYER_TAG_LIST_CODEC.decode(buffer);
             List<ItemTag> itemTags = ITEM_TAG_LIST_CODEC.decode(buffer);
-            return new ChatEntry(id, kind, sender, audience, origin, textContent, componentContent, createdAt,
-                    deleted, playerTags, itemTags);
+            return new ChatEntry(id, kind, sender, audience, origin, textContent, componentContent, targetUuid,
+                    targetName, createdAt, deleted, playerTags, itemTags);
         }
 
         @Override
@@ -76,6 +82,8 @@ public record ChatEntry(
             ByteBufCodecs.STRING_UTF8.encode(buffer, value.origin().name());
             ByteBufCodecs.STRING_UTF8.encode(buffer, value.textContent());
             ComponentSerialization.TRUSTED_CONTEXT_FREE_STREAM_CODEC.encode(buffer, value.componentContent());
+            UUIDUtil.STREAM_CODEC.encode(buffer, value.targetUuid());
+            ByteBufCodecs.STRING_UTF8.encode(buffer, value.targetName());
             ByteBufCodecs.VAR_LONG.encode(buffer, value.createdAt());
             ByteBufCodecs.BOOL.encode(buffer, value.deleted());
             PLAYER_TAG_LIST_CODEC.encode(buffer, value.playerTags());
@@ -87,18 +95,27 @@ public record ChatEntry(
         playerTags = List.copyOf(playerTags);
         itemTags = List.copyOf(itemTags);
         componentContent = componentContent.copy();
+        targetUuid = targetUuid == null ? NIL_UUID : targetUuid;
+        targetName = targetName == null ? "" : targetName;
     }
 
     public static ChatEntry player(ChatMessage message) {
         return new ChatEntry(message.id(), Kind.PLAYER, Sender.player(message.senderUuid(), message.senderName()),
-                Audience.global(), Origin.PLAYER_CHAT, message.content(), Component.empty(), message.createdAt(),
-                message.deleted(), message.playerTags(), message.itemTags());
+                Audience.global(), Origin.PLAYER_CHAT, message.content(), Component.empty(), NIL_UUID, "",
+                message.createdAt(), message.deleted(), message.playerTags(), message.itemTags());
+    }
+
+    public static ChatEntry playerWhisper(ChatMessage message, UUID targetUuid, String targetName) {
+        return new ChatEntry(message.id(), Kind.PLAYER, Sender.player(message.senderUuid(), message.senderName()),
+                Audience.players(List.of(message.senderUuid(), targetUuid)), Origin.PLAYER_WHISPER, message.content(),
+                Component.empty(), targetUuid, targetName, message.createdAt(), message.deleted(),
+                message.playerTags(), message.itemTags());
     }
 
     public static ChatEntry system(long id, Component content, long createdAt, Sender sender, Audience audience,
                                    Origin origin) {
-        return new ChatEntry(id, Kind.SYSTEM, sender, audience, origin, "", content.copy(), createdAt, false,
-                List.of(), List.of());
+        return new ChatEntry(id, Kind.SYSTEM, sender, audience, origin, "", content.copy(), NIL_UUID, "", createdAt,
+                false, List.of(), List.of());
     }
 
     public static ChatEntry legacySystem(SystemChatMessage message) {
@@ -108,6 +125,7 @@ public record ChatEntry(
 
     public boolean isPlayer() { return kind == Kind.PLAYER; }
     public boolean isSystem() { return kind == Kind.SYSTEM; }
+    public boolean isWhisper() { return isPlayer() && origin == Origin.PLAYER_WHISPER; }
     public boolean isVisibleTo(UUID playerUuid) { return audience.isVisibleTo(playerUuid); }
 
     public ChatMessage chatMessage() {
@@ -126,12 +144,12 @@ public record ChatEntry(
 
     public ChatEntry asDeleted() {
         if (!isPlayer()) return this;
-        return new ChatEntry(id, kind, sender, audience, origin, "", componentContent, createdAt, true,
-                List.of(), List.of());
+        return new ChatEntry(id, kind, sender, audience, origin, "", componentContent, targetUuid, targetName, createdAt,
+                true, List.of(), List.of());
     }
 
     public enum Kind { PLAYER, SYSTEM }
-    public enum Origin { PLAYER_CHAT, VANILLA_BROADCAST, TELLRAW, DIRECT_SYSTEM, LEGACY_SYSTEM }
+    public enum Origin { PLAYER_CHAT, PLAYER_WHISPER, VANILLA_BROADCAST, TELLRAW, DIRECT_SYSTEM, LEGACY_SYSTEM }
 
     public record Sender(SenderType type, UUID uuid, String name) {
         private static final Codec<SenderType> TYPE_CODEC = Codec.STRING.xmap(SenderType::valueOf, SenderType::name);

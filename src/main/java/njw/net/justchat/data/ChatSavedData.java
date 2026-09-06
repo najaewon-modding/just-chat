@@ -23,12 +23,24 @@ public final class ChatSavedData {
 
     public ChatEntry addPlayer(UUID senderUuid, String senderName, String content, long createdAt,
                                List<PlayerTag> playerTags, List<ItemTag> itemTags) {
+        return addPlayerEntry(senderUuid, senderName, content, createdAt, playerTags, itemTags, null, null);
+    }
+
+    public ChatEntry addWhisper(UUID senderUuid, String senderName, UUID targetUuid, String targetName,
+                                String content, long createdAt, List<PlayerTag> playerTags, List<ItemTag> itemTags) {
+        return addPlayerEntry(senderUuid, senderName, content, createdAt, playerTags, itemTags, targetUuid, targetName);
+    }
+
+    private ChatEntry addPlayerEntry(UUID senderUuid, String senderName, String content, long createdAt,
+                                     List<PlayerTag> playerTags, List<ItemTag> itemTags,
+                                     UUID targetUuid, String targetName) {
         ChatIndexSavedData index = ChatIndexSavedData.get(server);
         ChatIndexSavedData.SegmentInfo segment = getWritableSegment(index, createdAt);
         long messageId = index.allocateMessageId();
         ChatMessage message = new ChatMessage(messageId, senderUuid, senderName, content, createdAt, false,
                 playerTags, itemTags);
-        ChatEntry entry = ChatEntry.player(message);
+        ChatEntry entry = targetUuid == null ? ChatEntry.player(message)
+                : ChatEntry.playerWhisper(message, targetUuid, targetName);
         ChatSegmentSavedData.get(server, segment.segmentId()).add(entry);
         index.recordEntry(segment.segmentId(), messageId);
         return entry;

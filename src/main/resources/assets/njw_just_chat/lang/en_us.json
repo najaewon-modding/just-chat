@@ -7,6 +7,10 @@
   "screen.njw_just_chat.command_only_warning": "Only commands can be entered here. Use T for regular chat.",
   "screen.njw_just_chat.item_tag": "Item",
   "screen.njw_just_chat.select_item": "Select an item to tag",
+  "screen.njw_just_chat.target_all": "Everyone",
+  "screen.njw_just_chat.target_player": "To %s",
+  "screen.njw_just_chat.whisper_from": "From %s: ",
+  "screen.njw_just_chat.whisper_to": "To %s: ",
   "screen.njw_just_chat.delete": "Delete",
   "screen.njw_just_chat.deleted_message": "This message has been deleted",
   "screen.njw_just_chat.read_boundary": "Read up to here",
@@ -20,5 +24,6 @@
   "screen.njw_just_chat.player_tag_last_seen_loading": "Loading...",
   "screen.njw_just_chat.player_tag_last_seen_unknown": "Unknown",
   "config.njw_just_chat.close_chat_after_send": "Close chat after sending",
-  "message.njw_just_chat.rate_limited": "Please try again shortly."
+  "message.njw_just_chat.rate_limited": "Please try again shortly.",
+  "message.njw_just_chat.whisper_target_offline": "The selected player is no longer online."
 }

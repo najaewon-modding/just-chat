@@ -11,7 +11,8 @@ import java.util.List;
 
 public record SendChatPayload(
         String content,
-        List<ItemTagReference> itemTags
+        List<ItemTagReference> itemTags,
+        String targetUuid
 ) implements CustomPacketPayload {
     private static final StreamCodec<ByteBuf, List<ItemTagReference>> ITEM_TAG_LIST_CODEC =
             ItemTagReference.STREAM_CODEC.apply(
@@ -25,8 +26,13 @@ public record SendChatPayload(
     public static final StreamCodec<ByteBuf, SendChatPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.STRING_UTF8, SendChatPayload::content,
             ITEM_TAG_LIST_CODEC, SendChatPayload::itemTags,
+            ByteBufCodecs.STRING_UTF8, SendChatPayload::targetUuid,
             SendChatPayload::new
     );
+
+    public SendChatPayload(String content, List<ItemTagReference> itemTags) {
+        this(content, itemTags, WhisperTargetSelection.targetUuid());
+    }
 
     @Override
     public Type<?> type() {

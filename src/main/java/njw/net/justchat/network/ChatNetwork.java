@@ -22,6 +22,7 @@ import njw.net.justchat.server.PendingItemTagManager;
 import njw.net.justchat.server.PlayerTagResolver;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,7 +32,7 @@ public final class ChatNetwork {
 
     @SubscribeEvent
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("5");
+        PayloadRegistrar registrar = event.registrar("6");
         registrar.playToServer(SendChatPayload.TYPE, SendChatPayload.STREAM_CODEC, ChatNetwork::handleSendChat);
         registrar.playToServer(DeleteChatPayload.TYPE, DeleteChatPayload.STREAM_CODEC, ChatNetwork::handleDeleteChat);
         registrar.playToServer(RequestChatHistoryPayload.TYPE, RequestChatHistoryPayload.STREAM_CODEC,
@@ -42,6 +43,8 @@ public final class ChatNetwork {
                 ChatNetwork::handleChatReadStateRequest);
         registrar.playToServer(RequestPlayerSuggestionsPayload.TYPE, RequestPlayerSuggestionsPayload.STREAM_CODEC,
                 ChatNetwork::handlePlayerSuggestions);
+        registrar.playToServer(RequestWhisperTargetsPayload.TYPE, RequestWhisperTargetsPayload.STREAM_CODEC,
+                ChatNetwork::handleWhisperTargets);
         registrar.playToServer(RequestPlayerPresencePayload.TYPE, RequestPlayerPresencePayload.STREAM_CODEC,
                 ChatNetwork::handlePlayerPresence);
         registrar.playToServer(CreateItemTagPayload.TYPE, CreateItemTagPayload.STREAM_CODEC,
@@ -50,6 +53,7 @@ public final class ChatNetwork {
         registrar.playToClient(ChatHistoryPayload.TYPE, ChatHistoryPayload.STREAM_CODEC);
         registrar.playToClient(ChatReadStatePayload.TYPE, ChatReadStatePayload.STREAM_CODEC);
         registrar.playToClient(PlayerSuggestionsPayload.TYPE, PlayerSuggestionsPayload.STREAM_CODEC);
+        registrar.playToClient(WhisperTargetsPayload.TYPE, WhisperTargetsPayload.STREAM_CODEC);
         registrar.playToClient(PlayerPresencePayload.TYPE, PlayerPresencePayload.STREAM_CODEC);
         registrar.playToClient(ItemTagCreatedPayload.TYPE, ItemTagCreatedPayload.STREAM_CODEC);
     }
@@ -71,8 +75,30 @@ public final class ChatNetwork {
         MinecraftServer server = player.level().getServer();
         List<ItemTag> itemTags = PendingItemTagManager.resolve(player, content, payload.itemTags());
         List<PlayerTag> playerTags = PlayerTagResolver.resolve(server, content, itemTags);
-        ChatService.of(server).appendPlayer(player.getUUID(), player.getName().getString(), content,
-                System.currentTimeMillis(), playerTags, itemTags);
+        long createdAt = System.currentTimeMillis();
+
+        if (payload.targetUuid().isBlank()) {
+            ChatService.of(server).appendPlayer(player.getUUID(), player.getName().getString(), content, createdAt,
+                    playerTags, itemTags);
+            return;
+        }
+
+        UUID targetUuid;
+        try {
+            targetUuid = UUID.fromString(payload.targetUuid());
+        } catch (IllegalArgumentException ignored) {
+            return;
+        }
+        if (targetUuid.equals(player.getUUID())) return;
+
+        ServerPlayer target = server.getPlayerList().getPlayer(targetUuid);
+        if (target == null) {
+            player.sendSystemMessage(Component.translatable("message.njw_just_chat.whisper_target_offline"));
+            return;
+        }
+
+        ChatService.of(server).appendWhisper(player.getUUID(), player.getName().getString(), target.getUUID(),
+                target.getName().getString(), content, createdAt, playerTags, itemTags);
     }
 
     private static void handleCreateItemTag(CreateItemTagPayload payload, IPayloadContext context) {
@@ -131,6 +157,18 @@ public final class ChatNetwork {
                 .stream().map(suggestion -> new PlayerSuggestionsPayload.Suggestion(suggestion.name(),
                         suggestion.online())).toList();
         PacketDistributor.sendToPlayer(player, new PlayerSuggestionsPayload(payload.query(), suggestions));
+    }
+
+    private static void handleWhisperTargets(RequestWhisperTargetsPayload payload, IPayloadContext context) {
+        if (!(context.player() instanceof ServerPlayer player)) return;
+        if (!ChatRateLimiter.allow(player, ChatRateLimiter.Action.SUGGESTIONS)) return;
+        List<WhisperTargetsPayload.Target> targets = player.level().getServer().getPlayerList().getPlayers().stream()
+                .filter(target -> !target.getUUID().equals(player.getUUID()))
+                .sorted(Comparator.comparing(target -> target.getName().getString(), String.CASE_INSENSITIVE_ORDER))
+                .map(target -> new WhisperTargetsPayload.Target(target.getUUID().toString(),
+                        target.getName().getString()))
+                .toList();
+        PacketDistributor.sendToPlayer(player, new WhisperTargetsPayload(targets));
     }
 
     private static void handlePlayerPresence(RequestPlayerPresencePayload payload, IPayloadContext context) {

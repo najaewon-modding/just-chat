@@ -9,6 +9,7 @@
     "ServerPlayerMixin"
   ],
   "client": [
+    "CustomChatScreenAccessor",
     "MinecraftMixin"
   ],
   "injectors": {
