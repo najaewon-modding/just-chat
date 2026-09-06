@@ -23,6 +23,15 @@ public abstract class EntityArgumentMixin {
             return nodeName.equals("tellraw") || nodeName.equals("minecraft:tellraw");
         });
         if (!tellraw) return;
-        SystemMessageCapture.beginTellraw(context.getSource(), cir.getReturnValue());
+        SystemMessageCapture.beginTellraw(context.getSource(), cir.getReturnValue(), isExplicitAllPlayers(context, name));
+    }
+
+    private static boolean isExplicitAllPlayers(CommandContext<CommandSourceStack> context, String name) {
+        String input = context.getInput();
+        return context.getNodes().stream()
+                .filter(node -> node.getNode().getName().equals(name))
+                .map(node -> node.getRange())
+                .anyMatch(range -> range.getStart() >= 0 && range.getEnd() <= input.length()
+                        && input.substring(range.getStart(), range.getEnd()).equals("@a"));
     }
 }

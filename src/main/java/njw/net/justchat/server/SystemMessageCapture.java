@@ -36,10 +36,11 @@ public final class SystemMessageCapture {
                 ChatEntry.Origin.VANILLA_BROADCAST);
     }
 
-    public static void beginTellraw(CommandSourceStack source, Collection<ServerPlayer> targets) {
+    public static void beginTellraw(CommandSourceStack source, Collection<ServerPlayer> targets,
+                                    boolean explicitAllPlayers) {
         if (targets.isEmpty()) return;
         List<UUID> expected = targets.stream().map(ServerPlayer::getUUID).distinct().toList();
-        TELLRAW_CONTEXT.set(new TellrawContext(source.getServer(), senderOf(source), expected));
+        TELLRAW_CONTEXT.set(new TellrawContext(source.getServer(), senderOf(source), expected, explicitAllPlayers));
     }
 
     public static void observe(ServerPlayer player, Component message, boolean overlay, boolean accepted) {
@@ -96,18 +97,12 @@ public final class SystemMessageCapture {
             group.players.add(delivery.playerUuid());
         }
 
-        List<UUID> online = context.server.getPlayerList().getPlayers().stream()
-                .map(ServerPlayer::getUUID).distinct().toList();
         for (MessageGroup group : groups) {
-            ChatEntry.Audience audience = groups.size() == 1 && samePlayers(group.players, online)
+            ChatEntry.Audience audience = context.explicitAllPlayers && groups.size() == 1
                     ? ChatEntry.Audience.global()
                     : ChatEntry.Audience.players(List.copyOf(group.players));
             ChatService.of(context.server).appendSystem(group.message, context.sender, audience, ChatEntry.Origin.TELLRAW);
         }
-    }
-
-    private static boolean samePlayers(List<UUID> first, List<UUID> second) {
-        return first.size() == second.size() && first.containsAll(second) && second.containsAll(first);
     }
 
     private static ChatEntry.Sender senderOf(CommandSourceStack source) {
@@ -133,12 +128,15 @@ public final class SystemMessageCapture {
         private final MinecraftServer server;
         private final ChatEntry.Sender sender;
         private final List<UUID> expected;
+        private final boolean explicitAllPlayers;
         private final List<UUID> processed = new ArrayList<>();
         private final List<Delivery> deliveries = new ArrayList<>();
-        private TellrawContext(MinecraftServer server, ChatEntry.Sender sender, List<UUID> expected) {
+        private TellrawContext(MinecraftServer server, ChatEntry.Sender sender, List<UUID> expected,
+                               boolean explicitAllPlayers) {
             this.server = server;
             this.sender = sender;
             this.expected = expected;
+            this.explicitAllPlayers = explicitAllPlayers;
         }
     }
 

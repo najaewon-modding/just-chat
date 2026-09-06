@@ -14,19 +14,22 @@ public final class VanillaChatCapture {
     public static void onPlayerMessage(ClientChatReceivedEvent.Player event) {
         long now = System.currentTimeMillis();
         ChatClientState.addVanilla(event.getMessage(), now);
-        handlePlayerDisplay(event, now);
-    }
-
-    private static void handlePlayerDisplay(ClientChatReceivedEvent event, long createdAt) {
+        Component line = VanillaChatBridge.withTimestamp(event.getMessage(), now);
         Minecraft minecraft = Minecraft.getInstance();
-
         if (minecraft.screen instanceof CustomChatScreen) {
+            VanillaChatBridge.defer(line);
             event.setCanceled(true);
             return;
         }
-
-        String time = ChatTimeFormatter.formatTime(createdAt);
-        Component line = Component.literal("[" + time + "] ").append(event.getMessage().copy());
+        VanillaChatBridge.flushPending();
         event.setMessage(line);
+    }
+
+    @SubscribeEvent
+    public static void onSystemMessage(ClientChatReceivedEvent.System event) {
+        if (event.isOverlay()) return;
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!(minecraft.screen instanceof CustomChatScreen)) VanillaChatBridge.flushPending();
+        event.setMessage(VanillaChatBridge.withTimestamp(event.getMessage(), System.currentTimeMillis()));
     }
 }

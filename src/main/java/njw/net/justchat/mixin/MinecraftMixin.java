@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.ChatComponent;
 import njw.net.justchat.client.CommandOnlyChatScreen;
 import njw.net.justchat.client.CustomChatScreen;
+import njw.net.justchat.client.VanillaChatBridge;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -22,6 +23,7 @@ public abstract class MinecraftMixin {
         }
 
         if (chatMethod == ChatComponent.ChatMethod.COMMAND) {
+            VanillaChatBridge.flushPending();
             minecraft.setScreen(new CommandOnlyChatScreen());
             ci.cancel();
         }

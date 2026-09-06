@@ -1,7 +1,6 @@
 package njw.net.justchat.client;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -33,6 +32,7 @@ public final class ChatClientNetwork {
 
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        VanillaChatBridge.clear();
         ChatClientState.clear();
         ChatReadClientState.clear();
         PlayerPresenceClientState.clear();
@@ -53,11 +53,8 @@ public final class ChatClientNetwork {
             if (message != null) MentionNotifier.notifyIfMentioned(message);
         }
         if (screen != null) screen.afterLivePersistentMessage(entry.id());
-        if (!isNew || !entry.isPlayer() || minecraft.player == null || screen != null) return;
-
-        String time = ChatTimeFormatter.formatTime(entry.createdAt());
-        Component content = ChatClientEntry.persistent(entry).displayMessage();
-        minecraft.player.sendSystemMessage(Component.literal("[" + time + "] ").append(content));
+        if (!isNew || !entry.isPlayer()) return;
+        VanillaChatBridge.publishPlayerEntry(entry, screen != null);
     }
 
     private static void handleChatHistory(ChatHistoryPayload payload, IPayloadContext context) {
