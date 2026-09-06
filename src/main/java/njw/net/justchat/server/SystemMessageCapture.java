@@ -21,24 +21,32 @@ public final class SystemMessageCapture {
 
     private SystemMessageCapture() {}
 
-    public static void runWithoutPersistence(Runnable action) {
+    public static void beginPersistenceSuppression() {
+        PERSISTENCE_SUPPRESSION_DEPTH.set(PERSISTENCE_SUPPRESSION_DEPTH.get() + 1);
+    }
+
+    public static void endPersistenceSuppression() {
         int depth = PERSISTENCE_SUPPRESSION_DEPTH.get();
-        PERSISTENCE_SUPPRESSION_DEPTH.set(depth + 1);
+        if (depth <= 1) PERSISTENCE_SUPPRESSION_DEPTH.remove();
+        else PERSISTENCE_SUPPRESSION_DEPTH.set(depth - 1);
+    }
+
+    public static void runWithoutPersistence(Runnable action) {
+        beginPersistenceSuppression();
         try {
             action.run();
         } finally {
-            if (depth == 0) PERSISTENCE_SUPPRESSION_DEPTH.remove();
-            else PERSISTENCE_SUPPRESSION_DEPTH.set(depth);
+            endPersistenceSuppression();
         }
     }
 
     public static void beginBroadcast(MinecraftServer server, Component message, boolean overlay) {
-        if (overlay) return;
+        if (overlay || persistenceSuppressed()) return;
         BROADCAST_CONTEXT.get().push(new BroadcastContext(server, message.copy()));
     }
 
     public static void endBroadcast(boolean overlay) {
-        if (overlay) return;
+        if (overlay || persistenceSuppressed()) return;
         Deque<BroadcastContext> contexts = BROADCAST_CONTEXT.get();
         if (contexts.isEmpty()) return;
         BroadcastContext context = contexts.pop();
@@ -56,7 +64,7 @@ public final class SystemMessageCapture {
     }
 
     public static void observe(ServerPlayer player, Component message, boolean overlay, boolean accepted) {
-        if (overlay || PERSISTENCE_SUPPRESSION_DEPTH.get() > 0) return;
+        if (overlay || persistenceSuppressed()) return;
         MinecraftServer server = player.level().getServer();
         BroadcastContext broadcast = currentBroadcast(server);
         if (broadcast != null) {
@@ -75,6 +83,10 @@ public final class SystemMessageCapture {
         if (!accepted) return;
         ChatService.of(server).appendSystem(message, ChatEntry.Sender.server(),
                 ChatEntry.Audience.players(List.of(player.getUUID())), ChatEntry.Origin.DIRECT_SYSTEM);
+    }
+
+    private static boolean persistenceSuppressed() {
+        return PERSISTENCE_SUPPRESSION_DEPTH.get() > 0;
     }
 
     private static BroadcastContext currentBroadcast(MinecraftServer server) {

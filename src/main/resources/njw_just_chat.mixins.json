@@ -4,6 +4,7 @@
   "package": "njw.net.justchat.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
+    "CommandSourceStackMixin",
     "EntityArgumentMixin",
     "PlayerListMixin",
     "ServerPlayerMixin"
