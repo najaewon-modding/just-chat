@@ -17,8 +17,8 @@ public final class WhisperTargetDropdownButton extends AbstractWidget {
     private static final int ROW_HEIGHT = 20;
     private static final int MAX_VISIBLE_ROWS = 8;
     private static final int BACKGROUND = 0xE0101010;
-    private static final int BUTTON = 0xCC404040;
-    private static final int BUTTON_HOVERED = 0xCC606060;
+    private static final int BUTTON = 0xB0606060;
+    private static final int BUTTON_HOVERED = 0xC0787878;
     private static final int ROW_HOVERED = 0xCC505050;
     private static final int TEXT = 0xFFFFFFFF;
 
