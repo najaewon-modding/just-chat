@@ -1,6 +1,7 @@
 package njw.net.justchat.client;
 
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
+import njw.net.justchat.data.ChatEntry;
 import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.data.PlayerPresence;
 import njw.net.justchat.data.PlayerTag;
@@ -38,15 +39,19 @@ public final class PlayerPresenceClientState {
         }
     }
 
-    public static void requestForMessage(ChatMessage message) {
+    public static void requestForEntry(ChatEntry entry) {
+        ChatMessage message = entry.chatMessage();
+        if (message == null) return;
         Set<UUID> uuids = new LinkedHashSet<>();
         for (PlayerTag tag : message.playerTags()) uuids.add(tag.targetUuid());
         request(uuids);
     }
 
-    public static void requestForMessages(List<ChatMessage> messages) {
+    public static void requestForEntries(List<ChatEntry> entries) {
         Set<UUID> uuids = new LinkedHashSet<>();
-        for (ChatMessage message : messages) {
+        for (ChatEntry entry : entries) {
+            ChatMessage message = entry.chatMessage();
+            if (message == null) continue;
             for (PlayerTag tag : message.playerTags()) uuids.add(tag.targetUuid());
         }
         request(uuids);
@@ -58,7 +63,7 @@ public final class PlayerPresenceClientState {
     }
 
     private static PlayerPresence adjustToClientClock(PlayerPresence presence, long serverTimeMillis,
-                                                      long clientTimeMillis) {
+                                                       long clientTimeMillis) {
         if (presence.lastSeenAt() <= 0L) return presence;
         long ageMillis = serverTimeMillis >= presence.lastSeenAt() ? serverTimeMillis - presence.lastSeenAt() : 0L;
         long adjustedLastSeenAt = ageMillis >= clientTimeMillis ? 1L : clientTimeMillis - ageMillis;

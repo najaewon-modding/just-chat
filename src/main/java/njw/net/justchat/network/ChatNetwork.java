@@ -10,7 +10,6 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import njw.net.justchat.ChatRules;
-import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.data.ChatSavedData;
 import njw.net.justchat.data.ItemTag;
 import njw.net.justchat.data.PlayerChatReadSavedData;
@@ -18,6 +17,7 @@ import njw.net.justchat.data.PlayerPresence;
 import njw.net.justchat.data.PlayerPresenceSavedData;
 import njw.net.justchat.data.PlayerTag;
 import njw.net.justchat.server.ChatRateLimiter;
+import njw.net.justchat.server.ChatService;
 import njw.net.justchat.server.PendingItemTagManager;
 import njw.net.justchat.server.PlayerTagResolver;
 
@@ -31,7 +31,7 @@ public final class ChatNetwork {
 
     @SubscribeEvent
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("4");
+        PayloadRegistrar registrar = event.registrar("5");
         registrar.playToServer(SendChatPayload.TYPE, SendChatPayload.STREAM_CODEC, ChatNetwork::handleSendChat);
         registrar.playToServer(DeleteChatPayload.TYPE, DeleteChatPayload.STREAM_CODEC, ChatNetwork::handleDeleteChat);
         registrar.playToServer(RequestChatHistoryPayload.TYPE, RequestChatHistoryPayload.STREAM_CODEC,
@@ -47,9 +47,7 @@ public final class ChatNetwork {
         registrar.playToServer(CreateItemTagPayload.TYPE, CreateItemTagPayload.STREAM_CODEC,
                 ChatNetwork::handleCreateItemTag);
         registrar.playToClient(NewChatPayload.TYPE, NewChatPayload.STREAM_CODEC);
-        registrar.playToClient(ChatDeletedPayload.TYPE, ChatDeletedPayload.STREAM_CODEC);
         registrar.playToClient(ChatHistoryPayload.TYPE, ChatHistoryPayload.STREAM_CODEC);
-        registrar.playToClient(NewSystemChatPayload.TYPE, NewSystemChatPayload.STREAM_CODEC);
         registrar.playToClient(ChatReadStatePayload.TYPE, ChatReadStatePayload.STREAM_CODEC);
         registrar.playToClient(PlayerSuggestionsPayload.TYPE, PlayerSuggestionsPayload.STREAM_CODEC);
         registrar.playToClient(PlayerPresencePayload.TYPE, PlayerPresencePayload.STREAM_CODEC);
@@ -64,17 +62,17 @@ public final class ChatNetwork {
             }
             return;
         }
+
         String content = payload.content();
-        if (content.isBlank()) return;
-        if (content.length() > ChatRules.MAX_MESSAGE_LENGTH) return;
+        if (content.isBlank() || content.length() > ChatRules.MAX_MESSAGE_LENGTH) return;
         if (content.stripLeading().startsWith("/")) return;
         if (payload.itemTags().size() > ChatRules.MAX_ITEM_TAGS_PER_MESSAGE) return;
+
         MinecraftServer server = player.level().getServer();
         List<ItemTag> itemTags = PendingItemTagManager.resolve(player, content, payload.itemTags());
         List<PlayerTag> playerTags = PlayerTagResolver.resolve(server, content, itemTags);
-        ChatMessage message = ChatSavedData.get(server).add(player.getUUID(), player.getName().getString(), content,
+        ChatService.of(server).appendPlayer(player.getUUID(), player.getName().getString(), content,
                 System.currentTimeMillis(), playerTags, itemTags);
-        PacketDistributor.sendToAllPlayers(new NewChatPayload(message));
     }
 
     private static void handleCreateItemTag(CreateItemTagPayload payload, IPayloadContext context) {
@@ -88,40 +86,34 @@ public final class ChatNetwork {
     private static void handleDeleteChat(DeleteChatPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         if (!ChatRateLimiter.allow(player, ChatRateLimiter.Action.DELETE)) return;
-        ChatSavedData data = ChatSavedData.get(player.level().getServer());
-        ChatMessage deleted = data.delete(payload.messageId(), player.getUUID(), System.currentTimeMillis());
-        if (deleted == null) return;
-        PacketDistributor.sendToAllPlayers(new ChatDeletedPayload(deleted));
+        ChatService.of(player.level().getServer()).delete(
+                payload.messageId(), player.getUUID(), System.currentTimeMillis());
     }
 
     private static void handleHistoryRequest(RequestChatHistoryPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         if (!ChatRateLimiter.allow(player, ChatRateLimiter.Action.HISTORY)) return;
-        ChatSavedData data = ChatSavedData.get(player.level().getServer());
-        ChatSavedData.HistoryBatch history = data.getHistoryBefore(payload.beforeId(), payload.limit());
+        ChatSavedData.HistoryBatch history = ChatService.of(player.level().getServer()).historyBefore(
+                payload.beforeId(), payload.limit(), player.getUUID());
         PacketDistributor.sendToPlayer(player,
-                new ChatHistoryPayload(
-                        payload.requestId(), history.messages(), history.systemMessages(), history.hasMore()
-                ));
+                new ChatHistoryPayload(payload.requestId(), history.entries(), history.hasMore()));
     }
 
     private static void handleNewerHistoryRequest(RequestNewerChatHistoryPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         if (!ChatRateLimiter.allow(player, ChatRateLimiter.Action.HISTORY)) return;
-        ChatSavedData data = ChatSavedData.get(player.level().getServer());
-        ChatSavedData.HistoryBatch history = data.getHistoryAfter(payload.afterId(), payload.limit());
+        ChatSavedData.HistoryBatch history = ChatService.of(player.level().getServer()).historyAfter(
+                payload.afterId(), payload.limit(), player.getUUID());
         PacketDistributor.sendToPlayer(player,
-                new ChatHistoryPayload(
-                        payload.requestId(), history.messages(), history.systemMessages(), history.hasMore()
-                ));
+                new ChatHistoryPayload(payload.requestId(), history.entries(), history.hasMore()));
     }
 
     private static void handleChatReadStateRequest(ChatReadStateRequestPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         MinecraftServer server = player.level().getServer();
-        ChatSavedData chatData = ChatSavedData.get(server);
+        ChatService chatService = ChatService.of(server);
         PlayerChatReadSavedData readData = PlayerChatReadSavedData.get(server);
-        long latestMessageId = Math.max(0L, chatData.latestPersistentId());
+        long latestMessageId = Math.max(0L, chatService.latestPersistentId(player.getUUID()));
         if (payload.shouldMarkRead()) {
             long requestedId = Math.max(0L, payload.lastReadMessageId());
             readData.markRead(player.getUUID(), Math.min(requestedId, latestMessageId));
@@ -151,7 +143,7 @@ public final class ChatNetwork {
             boolean online = server.getPlayerList().getPlayer(uuid) != null;
             result.add(new PlayerPresence(uuid, data.getLastSeen(uuid), online));
         }
-        long serverTimeMillis = System.currentTimeMillis();
-        PacketDistributor.sendToPlayer(player, new PlayerPresencePayload(List.copyOf(result), serverTimeMillis));
+        PacketDistributor.sendToPlayer(player,
+                new PlayerPresencePayload(List.copyOf(result), System.currentTimeMillis()));
     }
 }

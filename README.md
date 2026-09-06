@@ -2,7 +2,7 @@
 
 A persistent, feature-rich chat system that replaces Minecraft's default player chat.
 
-**Just Chat**은 Minecraft의 기본 플레이어 채팅을 확장하여 서버에 채팅 기록을 영구 저장하고,
+**Just Chat**은 Minecraft의 기본 플레이어 채팅을 확장하여 플레이어가 받은 채팅 메시지를 서버에 영구 저장하고,
 플레이어 태그, 아이템 태그, 읽음 상태, 과거 기록 탐색 등을 제공하는 NeoForge 모드입니다.
 
 ## Compatibility
@@ -13,29 +13,31 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 * Mod ID: `njw_just_chat`
 * Java **25**
 * Languages: **한국어 / English**
-* Network protocol: **4**
+* Network protocol: **5**
 
 멀티플레이에서는 클라이언트와 서버에 **동일한 버전의 Just Chat**을 설치하세요.
 
 ## Features
 
-### Persistent chat history
+### Persistent message inbox
 
-* 플레이어 채팅을 서버 월드에 영구 저장합니다.
-* 서버 재시작 후에도 이전 채팅 기록을 다시 불러올 수 있습니다.
-* 플레이어가 오프라인이었던 동안 전송된 메시지도 나중에 확인할 수 있습니다.
+* 플레이어 채팅과 일반 채팅 영역으로 전달되는 `overlay=false` 시스템 메시지를 서버 월드에 영구 저장합니다.
+* 전역 메시지는 모든 플레이어의 기록에서 확인할 수 있습니다.
+* 특정 플레이어에게만 전달된 메시지는 해당 플레이어의 기록에서만 확인할 수 있습니다.
+* `/tellraw @a`와 `/tellraw <target>`처럼 명시적인 대상에게 전달되는 메시지를 지원합니다.
+* 발전 과제와 datapack에서 생성한 메시지도 동일한 규칙으로 저장합니다.
+* action bar 등 `overlay=true` 메시지는 저장하지 않습니다.
+* 서버 재시작 후에도 이전 기록을 다시 불러올 수 있습니다.
+* 플레이어가 오프라인이었던 동안 생성된 전역 메시지도 나중에 확인할 수 있습니다.
 * 오래된 기록과 새로운 기록을 양방향으로 탐색할 수 있습니다.
 * 대량의 기록은 segment 단위로 관리합니다.
 
-### Global system messages
+### Message metadata
 
-* 모든 온라인 플레이어에게 전달되는 주요 시스템 메시지를 서버에 영구 저장합니다.
-* 저장된 글로벌 시스템 메시지는 일반 채팅 기록과 함께 Just Chat 화면에 표시됩니다.
-* `/tellraw @a`처럼 전체 플레이어를 대상으로 하는 메시지도 글로벌 메시지로 처리합니다.
-* 싱글플레이에서도 명시적으로 전체 대상을 사용하는 메시지는 글로벌 메시지로 처리합니다.
-* 특정 플레이어에게만 전송되는 시스템 메시지는 원래 Minecraft 채팅에만 표시됩니다.
-* 개인 시스템 메시지는 Just Chat 기록에 저장되지 않으며 다른 플레이어에게 전달되지 않습니다.
-* 발전 과제와 datapack에서 생성한 글로벌 메시지도 지원합니다.
+* 영구 메시지에는 sender, audience, origin 정보를 함께 저장합니다.
+* audience는 전역 또는 특정 플레이어 집합으로 기록됩니다.
+* 현재 Custom Chat 화면은 이 메타데이터를 별도로 구분해서 표시하지 않습니다.
+* 저장된 메타데이터를 이용해 추후 전역/개인 메시지 표시 방식이나 필터를 확장할 수 있습니다.
 
 ### Custom chat screen
 
@@ -133,7 +135,7 @@ Just Chat 화면의 아이템 버튼을 눌러 현재 인벤토리의 아이템�
 
 ## Multiplayer
 
-Just Chat의 persistent chat과 global system message 기능을 사용하려면 서버와 클라이언트 모두에
+Just Chat의 persistent message inbox 기능을 사용하려면 서버와 클라이언트 모두에
 Just Chat을 설치해야 합니다.
 
 클라이언트와 서버의 Just Chat 버전은 동일하게 유지하는 것을 권장합니다.

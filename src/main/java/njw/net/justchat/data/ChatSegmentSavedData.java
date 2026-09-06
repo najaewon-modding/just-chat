@@ -8,197 +8,115 @@ import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ChatSegmentSavedData extends SavedData {
     private static final Codec<ChatSegmentSavedData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-            ChatMessage.CODEC.listOf().optionalFieldOf("messages", List.of()).forGetter(data -> data.messages),
-            SystemChatMessage.CODEC.listOf().optionalFieldOf("systemMessages", List.of())
-                    .forGetter(data -> data.systemMessages)
+            ChatEntry.CODEC.listOf().optionalFieldOf("entries", List.of()).forGetter(data -> data.entries),
+            ChatMessage.CODEC.listOf().optionalFieldOf("messages", List.of()).forGetter(data -> List.of()),
+            SystemChatMessage.CODEC.listOf().optionalFieldOf("systemMessages", List.of()).forGetter(data -> List.of())
     ).apply(instance, ChatSegmentSavedData::new));
     private static final Map<Long, SavedDataType<ChatSegmentSavedData>> TYPES = new ConcurrentHashMap<>();
 
-    private final List<ChatMessage> messages;
-    private final List<SystemChatMessage> systemMessages;
+    private final List<ChatEntry> entries;
 
     public ChatSegmentSavedData() {
-        this(List.of(), List.of());
+        this(List.of(), List.of(), List.of());
     }
 
-    private ChatSegmentSavedData(List<ChatMessage> messages, List<SystemChatMessage> systemMessages) {
-        this.messages = new ArrayList<>(messages);
-        this.systemMessages = new ArrayList<>(systemMessages);
-        this.messages.sort(Comparator.comparingLong(ChatMessage::id));
-        this.systemMessages.sort(Comparator.comparingLong(SystemChatMessage::id));
+    private ChatSegmentSavedData(List<ChatEntry> entries, List<ChatMessage> messages,
+                                 List<SystemChatMessage> systemMessages) {
+        TreeMap<Long, ChatEntry> merged = new TreeMap<>();
+        for (ChatMessage message : messages) merged.put(message.id(), ChatEntry.player(message));
+        for (SystemChatMessage message : systemMessages) merged.put(message.id(), ChatEntry.legacySystem(message));
+        for (ChatEntry entry : entries) merged.put(entry.id(), entry);
+        this.entries = new ArrayList<>(merged.values());
     }
 
     public static ChatSegmentSavedData get(MinecraftServer server, long segmentId) {
         return server.getDataStorage().computeIfAbsent(type(segmentId));
     }
 
-    public void add(ChatMessage message) {
-        messages.add(message);
+    public void add(ChatEntry entry) {
+        int index = lowerBound(entry.id());
+        if (index < entries.size() && entries.get(index).id() == entry.id()) entries.set(index, entry);
+        else entries.add(index, entry);
         setDirty();
     }
 
-    public void addSystem(SystemChatMessage message) {
-        systemMessages.add(message);
-        setDirty();
-    }
-
-    public ChatMessage delete(long messageId, UUID requesterUuid, long now) {
-        int index = findChat(messageId);
+    public ChatEntry delete(long messageId, UUID requesterUuid, long now) {
+        int index = find(messageId);
         if (index < 0) return null;
-
-        ChatMessage message = messages.get(index);
-        if (!message.canDelete(requesterUuid, now)) return null;
-
-        ChatMessage deleted = message.asDeleted();
-        messages.set(index, deleted);
+        ChatEntry entry = entries.get(index);
+        if (!entry.canDelete(requesterUuid, now)) return null;
+        ChatEntry deleted = entry.asDeleted();
+        entries.set(index, deleted);
         setDirty();
         return deleted;
     }
 
-    public HistoryBatch getHistoryBefore(long beforeId, int limit) {
-        int safeLimit = Math.max(1, limit);
-        int chatIndex = findLastChatBefore(beforeId);
-        int systemIndex = findLastSystemBefore(beforeId);
-        List<ChatMessage> resultMessages = new ArrayList<>();
-        List<SystemChatMessage> resultSystems = new ArrayList<>();
-        int count = 0;
-
-        while (count < safeLimit && (chatIndex >= 0 || systemIndex >= 0)) {
-            boolean useChat = systemIndex < 0 || chatIndex >= 0
-                    && messages.get(chatIndex).id() > systemMessages.get(systemIndex).id();
-
-            if (useChat) resultMessages.add(messages.get(chatIndex--));
-            else resultSystems.add(systemMessages.get(systemIndex--));
-
-            count++;
+    public List<ChatEntry> getHistoryBefore(long beforeId, int limit, UUID viewerUuid) {
+        int index = lowerBound(beforeId) - 1;
+        List<ChatEntry> result = new ArrayList<>(Math.max(1, limit));
+        while (index >= 0 && result.size() < limit) {
+            ChatEntry entry = entries.get(index--);
+            if (entry.isVisibleTo(viewerUuid)) result.add(entry);
         }
-
-        Collections.reverse(resultMessages);
-        Collections.reverse(resultSystems);
-        return new HistoryBatch(
-                List.copyOf(resultMessages),
-                List.copyOf(resultSystems),
-                chatIndex >= 0 || systemIndex >= 0
-        );
+        result.sort(Comparator.comparingLong(ChatEntry::id));
+        return List.copyOf(result);
     }
 
-    public HistoryBatch getHistoryAfter(long afterId, int limit) {
-        int safeLimit = Math.max(1, limit);
-        int chatIndex = findFirstChatAfter(afterId);
-        int systemIndex = findFirstSystemAfter(afterId);
-        List<ChatMessage> resultMessages = new ArrayList<>();
-        List<SystemChatMessage> resultSystems = new ArrayList<>();
-        int count = 0;
-
-        while (count < safeLimit && (chatIndex < messages.size() || systemIndex < systemMessages.size())) {
-            boolean useChat = systemIndex >= systemMessages.size() || chatIndex < messages.size()
-                    && messages.get(chatIndex).id() < systemMessages.get(systemIndex).id();
-
-            if (useChat) resultMessages.add(messages.get(chatIndex++));
-            else resultSystems.add(systemMessages.get(systemIndex++));
-
-            count++;
+    public List<ChatEntry> getHistoryAfter(long afterId, int limit, UUID viewerUuid) {
+        int index = upperBound(afterId);
+        List<ChatEntry> result = new ArrayList<>(Math.max(1, limit));
+        while (index < entries.size() && result.size() < limit) {
+            ChatEntry entry = entries.get(index++);
+            if (entry.isVisibleTo(viewerUuid)) result.add(entry);
         }
+        return List.copyOf(result);
+    }
 
-        return new HistoryBatch(
-                List.copyOf(resultMessages),
-                List.copyOf(resultSystems),
-                chatIndex < messages.size() || systemIndex < systemMessages.size()
-        );
+    public long latestVisibleId(UUID viewerUuid) {
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            ChatEntry entry = entries.get(i);
+            if (entry.isVisibleTo(viewerUuid)) return entry.id();
+        }
+        return 0L;
     }
 
     public boolean containsId(long id) {
-        return findChat(id) >= 0 || findSystem(id) >= 0;
+        return find(id) >= 0;
     }
 
-    private int findChat(long id) {
-        int low = 0;
-        int high = messages.size() - 1;
-
-        while (low <= high) {
-            int mid = (low + high) >>> 1;
-            long current = messages.get(mid).id();
-            if (current < id) low = mid + 1;
-            else if (current > id) high = mid - 1;
-            else return mid;
-        }
-
-        return -1;
+    private int find(long id) {
+        int index = lowerBound(id);
+        return index < entries.size() && entries.get(index).id() == id ? index : -1;
     }
 
-    private int findSystem(long id) {
+    private int lowerBound(long id) {
         int low = 0;
-        int high = systemMessages.size() - 1;
-
-        while (low <= high) {
-            int mid = (low + high) >>> 1;
-            long current = systemMessages.get(mid).id();
-            if (current < id) low = mid + 1;
-            else if (current > id) high = mid - 1;
-            else return mid;
-        }
-
-        return -1;
-    }
-
-    private int findLastChatBefore(long id) {
-        int low = 0;
-        int high = messages.size();
-
+        int high = entries.size();
         while (low < high) {
             int mid = (low + high) >>> 1;
-            if (messages.get(mid).id() < id) low = mid + 1;
+            if (entries.get(mid).id() < id) low = mid + 1;
             else high = mid;
         }
-
-        return low - 1;
-    }
-
-    private int findLastSystemBefore(long id) {
-        int low = 0;
-        int high = systemMessages.size();
-
-        while (low < high) {
-            int mid = (low + high) >>> 1;
-            if (systemMessages.get(mid).id() < id) low = mid + 1;
-            else high = mid;
-        }
-
-        return low - 1;
-    }
-
-    private int findFirstChatAfter(long id) {
-        int low = 0;
-        int high = messages.size();
-
-        while (low < high) {
-            int mid = (low + high) >>> 1;
-            if (messages.get(mid).id() <= id) low = mid + 1;
-            else high = mid;
-        }
-
         return low;
     }
 
-    private int findFirstSystemAfter(long id) {
+    private int upperBound(long id) {
         int low = 0;
-        int high = systemMessages.size();
-
+        int high = entries.size();
         while (low < high) {
             int mid = (low + high) >>> 1;
-            if (systemMessages.get(mid).id() <= id) low = mid + 1;
+            if (entries.get(mid).id() <= id) low = mid + 1;
             else high = mid;
         }
-
         return low;
     }
 
@@ -210,10 +128,4 @@ public final class ChatSegmentSavedData extends SavedData {
                 null
         ));
     }
-
-    public record HistoryBatch(
-            List<ChatMessage> messages,
-            List<SystemChatMessage> systemMessages,
-            boolean hasMore
-    ) {}
 }

@@ -4,20 +4,18 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
+import njw.net.justchat.data.ChatEntry;
 import njw.net.justchat.data.ChatMessage;
 import njw.net.justchat.data.ItemTag;
 import njw.net.justchat.data.PlayerPresence;
 import njw.net.justchat.data.PlayerTag;
-import njw.net.justchat.data.SystemChatMessage;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 public record ChatClientEntry(
-        Type type,
-        ChatMessage chatMessage,
-        SystemChatMessage systemMessage,
+        ChatEntry persistentEntry,
         Component vanillaMessage,
         long createdAt
 ) {
@@ -26,38 +24,47 @@ public record ChatClientEntry(
     private static final long ONE_HOUR = 60L * ONE_MINUTE;
     private static final long ONE_DAY = 24L * ONE_HOUR;
 
-    public static ChatClientEntry player(ChatMessage message) {
-        return new ChatClientEntry(Type.PLAYER, message, null, null, message.createdAt());
-    }
-
-    public static ChatClientEntry system(SystemChatMessage message) {
-        return new ChatClientEntry(Type.SYSTEM, null, message, null, message.createdAt());
+    public static ChatClientEntry persistent(ChatEntry entry) {
+        return new ChatClientEntry(entry, null, entry.createdAt());
     }
 
     public static ChatClientEntry vanilla(Component message, long createdAt) {
-        return new ChatClientEntry(Type.VANILLA, null, null, message, createdAt);
+        return new ChatClientEntry(null, message, createdAt);
     }
 
     public boolean isPlayer() {
-        return type == Type.PLAYER;
+        return persistentEntry != null && persistentEntry.isPlayer();
     }
 
     public boolean isSystem() {
-        return type == Type.SYSTEM;
+        return persistentEntry != null && persistentEntry.isSystem();
+    }
+
+    public boolean isPersistent() {
+        return persistentEntry != null;
     }
 
     public long playerMessageId() {
-        return chatMessage == null ? -1L : chatMessage.id();
+        return isPlayer() ? persistentEntry.id() : -1L;
     }
 
     public long systemMessageId() {
-        return systemMessage == null ? -1L : systemMessage.id();
+        return isSystem() ? persistentEntry.id() : -1L;
+    }
+
+    public long persistentMessageId() {
+        return persistentEntry == null ? -1L : persistentEntry.id();
+    }
+
+    public ChatMessage chatMessage() {
+        return isPlayer() ? persistentEntry.chatMessage() : null;
     }
 
     public Component displayMessage() {
-        if (type == Type.SYSTEM) return systemMessage.content();
-        if (type == Type.VANILLA) return vanillaMessage;
+        if (isSystem()) return persistentEntry.componentContent();
+        if (!isPersistent()) return vanillaMessage;
 
+        ChatMessage chatMessage = chatMessage();
         if (chatMessage.deleted()) {
             return Component.literal("<" + chatMessage.senderName() + "> ")
                     .withStyle(ChatFormatting.GRAY)
@@ -65,17 +72,16 @@ public record ChatClientEntry(
                             .withStyle(ChatFormatting.GRAY));
         }
 
-        return createPlayerMessage();
+        return createPlayerMessage(chatMessage);
     }
 
-    private Component createPlayerMessage() {
+    private Component createPlayerMessage(ChatMessage chatMessage) {
         String content = chatMessage.content();
         MutableComponent result = Component.literal("<" + chatMessage.senderName() + "> ");
         List<MessageSpan> spans = new ArrayList<>();
 
         for (PlayerTag tag : chatMessage.playerTags()) {
             if (!validSpan(tag.start(), tag.end(), content.length())) continue;
-
             Component component = Component.literal(content.substring(tag.start(), tag.end())).withStyle(style ->
                     style.withColor(0x55AAFF).withHoverEvent(new HoverEvent.ShowText(createPlayerTagHover(tag))));
             spans.add(new MessageSpan(tag.start(), tag.end(), component));
@@ -83,7 +89,6 @@ public record ChatClientEntry(
 
         for (ItemTag tag : chatMessage.itemTags()) {
             if (!validSpan(tag.start(), tag.end(), content.length())) continue;
-
             String displayText = "[" + tag.item().create().getHoverName().getString() + "]";
             Component component = Component.literal(displayText).withStyle(style ->
                     style.withColor(0x55AAFF).withHoverEvent(new HoverEvent.ShowItem(tag.item())));
@@ -95,11 +100,7 @@ public record ChatClientEntry(
 
         for (MessageSpan span : spans) {
             if (span.start() < cursor) continue;
-
-            if (cursor < span.start()) {
-                result.append(Component.literal(content.substring(cursor, span.start())));
-            }
-
+            if (cursor < span.start()) result.append(Component.literal(content.substring(cursor, span.start())));
             result.append(span.component());
             cursor = span.end();
         }
@@ -126,25 +127,15 @@ public record ChatClientEntry(
     }
 
     private Component createLastSeenText(PlayerPresence presence) {
-        if (presence == null) {
-            return Component.translatable("screen.njw_just_chat.player_tag_last_seen_loading");
-        }
-
-        if (presence.lastSeenAt() <= 0L) {
-            return Component.translatable("screen.njw_just_chat.player_tag_last_seen_unknown");
-        }
+        if (presence == null) return Component.translatable("screen.njw_just_chat.player_tag_last_seen_loading");
+        if (presence.lastSeenAt() <= 0L) return Component.translatable("screen.njw_just_chat.player_tag_last_seen_unknown");
 
         long elapsed = Math.max(0L, System.currentTimeMillis() - presence.lastSeenAt());
-
-        if (elapsed < FIVE_MINUTES) {
-            return Component.translatable("screen.njw_just_chat.player_tag_last_seen_now");
-        }
-
+        if (elapsed < FIVE_MINUTES) return Component.translatable("screen.njw_just_chat.player_tag_last_seen_now");
         if (elapsed < ONE_HOUR) {
             long minutes = Math.max(5L, elapsed / ONE_MINUTE);
             return Component.translatable("screen.njw_just_chat.player_tag_last_seen_minutes", minutes);
         }
-
         if (elapsed < ONE_DAY) {
             long hours = Math.max(1L, elapsed / ONE_HOUR);
             return Component.translatable("screen.njw_just_chat.player_tag_last_seen_hours", hours);
@@ -155,12 +146,6 @@ public record ChatClientEntry(
 
     private boolean validSpan(int start, int end, int length) {
         return start >= 0 && start < end && end <= length;
-    }
-
-    public enum Type {
-        PLAYER,
-        SYSTEM,
-        VANILLA
     }
 
     private record MessageSpan(int start, int end, Component component) {}

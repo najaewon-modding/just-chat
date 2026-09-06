@@ -8,14 +8,12 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
+import njw.net.justchat.data.ChatEntry;
 import njw.net.justchat.data.ChatMessage;
-import njw.net.justchat.data.SystemChatMessage;
-import njw.net.justchat.network.ChatDeletedPayload;
 import njw.net.justchat.network.ChatHistoryPayload;
 import njw.net.justchat.network.ChatReadStatePayload;
 import njw.net.justchat.network.ItemTagCreatedPayload;
 import njw.net.justchat.network.NewChatPayload;
-import njw.net.justchat.network.NewSystemChatPayload;
 import njw.net.justchat.network.PlayerPresencePayload;
 import njw.net.justchat.network.PlayerSuggestionsPayload;
 
@@ -25,10 +23,8 @@ public final class ChatClientNetwork {
 
     @SubscribeEvent
     public static void register(RegisterClientPayloadHandlersEvent event) {
-        event.register(NewChatPayload.TYPE, ChatClientNetwork::handleNewChat);
-        event.register(ChatDeletedPayload.TYPE, ChatClientNetwork::handleChatDeleted);
+        event.register(NewChatPayload.TYPE, ChatClientNetwork::handleNewEntry);
         event.register(ChatHistoryPayload.TYPE, ChatClientNetwork::handleChatHistory);
-        event.register(NewSystemChatPayload.TYPE, ChatClientNetwork::handleNewSystemChat);
         event.register(ChatReadStatePayload.TYPE, ChatClientNetwork::handleChatReadState);
         event.register(PlayerSuggestionsPayload.TYPE, ChatClientNetwork::handlePlayerSuggestions);
         event.register(PlayerPresencePayload.TYPE, ChatClientNetwork::handlePlayerPresence);
@@ -42,57 +38,38 @@ public final class ChatClientNetwork {
         PlayerPresenceClientState.clear();
     }
 
-    private static void handleNewChat(NewChatPayload payload, IPayloadContext context) {
-        ChatMessage message = payload.message();
+    private static void handleNewEntry(NewChatPayload payload, IPayloadContext context) {
+        ChatEntry entry = payload.entry();
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
-        boolean ownMessage = minecraft.player != null
-                && minecraft.player.getUUID().equals(message.senderUuid());
+        boolean ownMessage = entry.isPlayer() && minecraft.player != null
+                && minecraft.player.getUUID().equals(entry.sender().uuid());
 
         if (screen != null) screen.beforeLivePersistentMessage(ownMessage);
-        ChatClientState.addPlayer(message);
-        PlayerPresenceClientState.requestForMessage(message);
-        MentionNotifier.notifyIfMentioned(message);
-        if (screen != null) screen.afterLivePersistentMessage(message.id());
-        if (minecraft.player == null || screen != null) return;
+        boolean isNew = ChatClientState.addPersistent(entry);
+        if (entry.isPlayer()) {
+            PlayerPresenceClientState.requestForEntry(entry);
+            ChatMessage message = entry.chatMessage();
+            if (message != null) MentionNotifier.notifyIfMentioned(message);
+        }
+        if (screen != null) screen.afterLivePersistentMessage(entry.id());
+        if (!isNew || !entry.isPlayer() || minecraft.player == null || screen != null) return;
 
-        String time = ChatTimeFormatter.formatTime(message.createdAt());
-        Component content = ChatClientEntry.player(message).displayMessage();
-        Component line = Component.literal("[" + time + "] ").append(content);
-        minecraft.player.sendSystemMessage(line);
-    }
-
-    private static void handleChatDeleted(ChatDeletedPayload payload, IPayloadContext context) {
-        ChatClientState.addPlayer(payload.message());
+        String time = ChatTimeFormatter.formatTime(entry.createdAt());
+        Component content = ChatClientEntry.persistent(entry).displayMessage();
+        minecraft.player.sendSystemMessage(Component.literal("[" + time + "] ").append(content));
     }
 
     private static void handleChatHistory(ChatHistoryPayload payload, IPayloadContext context) {
         boolean accepted = ChatClientState.completeHistory(
                 payload.requestId(),
-                payload.messages(),
-                payload.systemMessages(),
+                payload.entries(),
                 payload.hasMore()
         );
-
         if (!accepted) return;
-        PlayerPresenceClientState.requestForMessages(payload.messages());
+        PlayerPresenceClientState.requestForEntries(payload.entries());
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.screen instanceof CustomChatScreen screen) screen.onHistoryUpdated();
-    }
-
-    private static void handleNewSystemChat(NewSystemChatPayload payload, IPayloadContext context) {
-        SystemChatMessage message = payload.message();
-        Minecraft minecraft = Minecraft.getInstance();
-        CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
-
-        if (screen != null) screen.beforeLivePersistentMessage(false);
-        boolean isNew = ChatClientState.addSystem(message);
-        if (screen != null) screen.afterLivePersistentMessage(message.id());
-        if (!isNew || minecraft.player == null || screen != null) return;
-
-        String time = ChatTimeFormatter.formatTime(message.createdAt());
-        Component line = Component.literal("[" + time + "] ").append(message.content().copy());
-        minecraft.player.sendSystemMessage(line);
     }
 
     private static void handleChatReadState(ChatReadStatePayload payload, IPayloadContext context) {
@@ -101,7 +78,6 @@ public final class ChatClientNetwork {
 
     private static void handlePlayerSuggestions(PlayerSuggestionsPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();
-
         if (minecraft.screen instanceof CustomChatScreen screen) {
             screen.updatePlayerSuggestions(payload.query(), payload.suggestions());
         }
@@ -113,7 +89,6 @@ public final class ChatClientNetwork {
 
     private static void handleItemTagCreated(ItemTagCreatedPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();
-
         if (minecraft.screen instanceof CustomChatScreen screen) {
             screen.insertItemTag(payload.requestId(), payload.token(), payload.item());
         }
