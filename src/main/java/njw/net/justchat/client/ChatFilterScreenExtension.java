@@ -53,6 +53,10 @@ public final class ChatFilterScreenExtension {
         if (activeDropdown.mouseClicked(event.getMouseButtonEvent(), event.isDoubleClick())) event.setCanceled(true);
     }
 
+    public static boolean isDropdownCovering(double mouseX, double mouseY) {
+        return activeDropdown != null && activeDropdown.covers(mouseX, mouseY);
+    }
+
     public static void clear() {
         activeScreen = null;
         activeDropdown = null;

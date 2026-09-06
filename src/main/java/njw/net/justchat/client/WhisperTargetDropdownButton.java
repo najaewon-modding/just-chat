@@ -118,6 +118,10 @@ public final class WhisperTargetDropdownButton extends AbstractWidget {
         }
     }
 
+    public boolean covers(double mouseX, double mouseY) {
+        return insideButton(mouseX, mouseY) || open && insideDropdown(mouseX, mouseY);
+    }
+
     @Override
     protected void updateWidgetNarration(NarrationElementOutput output) {}
 

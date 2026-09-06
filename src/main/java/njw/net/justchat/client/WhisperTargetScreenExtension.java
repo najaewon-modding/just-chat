@@ -1,7 +1,9 @@
 package njw.net.justchat.client;
 
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
@@ -57,8 +59,14 @@ public final class WhisperTargetScreenExtension {
 
     @SubscribeEvent
     public static void onScreenRender(ScreenEvent.Render.Post event) {
-        if (event.getScreen() != activeScreen || activeDropdown == null) return;
-        activeDropdown.renderDropdownOverlay(event.getGuiGraphics(), event.getMouseX(), event.getMouseY());
+        if (event.getScreen() != activeScreen) return;
+        if (activeDropdown != null) {
+            activeDropdown.renderDropdownOverlay(event.getGuiGraphics(), event.getMouseX(), event.getMouseY());
+        }
+        double mouseX = event.getMouseX();
+        double mouseY = event.getMouseY();
+        if (isDropdownCovering(mouseX, mouseY) || ChatFilterScreenExtension.isDropdownCovering(mouseX, mouseY)) return;
+        requestPlayerNameCursor(activeScreen, event.getGuiGraphics(), mouseX, mouseY);
     }
 
     @SubscribeEvent
@@ -96,10 +104,63 @@ public final class WhisperTargetScreenExtension {
         if (activeDropdown != null) activeDropdown.updateTargets(targets);
     }
 
+    public static boolean isDropdownCovering(double mouseX, double mouseY) {
+        return activeDropdown != null && activeDropdown.covers(mouseX, mouseY);
+    }
+
     public static void clear() {
         activeScreen = null;
         activeDropdown = null;
         WhisperTargetSelection.clear();
+    }
+
+    private static void requestPlayerNameCursor(CustomChatScreen screen, GuiGraphicsExtractor graphics,
+                                                double mouseX, double mouseY) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) return;
+        UUID viewerUuid = minecraft.player.getUUID();
+        List<ReplyRow> rows = buildRows(screen, minecraft.font);
+        if (rows.isEmpty()) return;
+        int scrollOffset = ((CustomChatScreenAccessor) (Object) screen).njwJustChat$scrollOffset();
+        int start = rows.size() - 1 - Math.min(scrollOffset, getMaxScrollOffset(screen, rows));
+        int y = screen.height - MESSAGE_BOTTOM_OFFSET;
+
+        for (int i = start; i >= 0 && y >= MESSAGE_TOP; i--) {
+            ReplyRow row = rows.get(i);
+            if (row.entry() != null && row.lineIndex() == 0 && isMouseOverRow(screen, minecraft.font, mouseX, mouseY, y)) {
+                if (isMouseOverPlayerName(row.entry(), viewerUuid, minecraft.font, mouseX, y)) {
+                    graphics.requestCursor(CursorTypes.POINTING_HAND);
+                }
+                return;
+            }
+            y -= row.height();
+        }
+    }
+
+    private static boolean isMouseOverPlayerName(ChatClientEntry entry, UUID viewerUuid, Font font,
+                                                 double mouseX, int y) {
+        if (!entry.isPlayer() || !entry.isPersistent()) return false;
+        var persistent = entry.persistentEntry();
+        if (viewerUuid.equals(persistent.sender().uuid())) return false;
+
+        String senderName = persistent.sender().name();
+        if (senderName.isEmpty()) return false;
+        String timePrefix = "[" + ChatTimeFormatter.formatTime(entry.createdAt()) + "] ";
+        int nameX;
+
+        if (!persistent.isWhisper()) {
+            nameX = MESSAGE_LEFT + font.width(timePrefix + "<");
+        } else {
+            String whisperPrefix = Component.translatable(
+                    "screen.njw_just_chat.whisper_from", senderName).getString();
+            int nameIndex = whisperPrefix.indexOf(senderName);
+            if (nameIndex < 0) return false;
+            nameX = MESSAGE_LEFT + font.width(timePrefix) + font.width(whisperPrefix.substring(0, nameIndex));
+        }
+
+        int nameWidth = font.width(senderName);
+        return mouseX >= nameX && mouseX < nameX + nameWidth
+                && y >= MESSAGE_TOP;
     }
 
     private static ChatClientEntry findReplyTarget(CustomChatScreen screen, double mouseX, double mouseY) {
@@ -138,16 +199,16 @@ public final class WhisperTargetScreenExtension {
             long persistentId = entry.isPersistent() ? entry.persistentMessageId() : Long.MIN_VALUE;
             if (showReadBoundary && !readBoundaryInserted && persistentId != Long.MIN_VALUE
                     && persistentId > readBoundaryId) {
-                rows.add(new ReplyRow(null, READ_BOUNDARY_LINE_HEIGHT));
+                rows.add(new ReplyRow(null, READ_BOUNDARY_LINE_HEIGHT, -1));
                 readBoundaryInserted = true;
             }
-            if (isFirstOfDate(i)) rows.add(new ReplyRow(null, DATE_LINE_HEIGHT));
+            if (isFirstOfDate(i)) rows.add(new ReplyRow(null, DATE_LINE_HEIGHT, -1));
 
             String time = ChatTimeFormatter.formatTime(entry.createdAt());
             Component line = Component.literal("[" + time + "] ").append(entry.displayMessage());
             int lineCount = Math.max(1, font.split(line, messageWidth).size());
             for (int lineIndex = 0; lineIndex < lineCount; lineIndex++) {
-                rows.add(new ReplyRow(entry, MESSAGE_LINE_HEIGHT));
+                rows.add(new ReplyRow(entry, MESSAGE_LINE_HEIGHT, lineIndex));
             }
         }
         return rows;
@@ -187,5 +248,5 @@ public final class WhisperTargetScreenExtension {
                 ChatClientState.get(index).createdAt(), ChatClientState.get(index - 1).createdAt());
     }
 
-    private record ReplyRow(ChatClientEntry entry, int height) {}
+    private record ReplyRow(ChatClientEntry entry, int height, int lineIndex) {}
 }
