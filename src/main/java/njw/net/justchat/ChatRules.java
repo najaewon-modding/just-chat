@@ -12,7 +12,7 @@ public final class ChatRules {
 
     public static final int MAX_PERSISTENT_ENTRIES_PER_SEGMENT = Integer.getInteger(
             "njw_just_chat.maxEntriesPerSegment",
-            100_000
+            10_000
     );
 
     private ChatRules() {}
