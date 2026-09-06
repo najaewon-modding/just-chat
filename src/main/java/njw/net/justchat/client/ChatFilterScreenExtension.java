@@ -14,7 +14,7 @@ import njw.net.justchat.network.RequestChatHistoryPayload;
 public final class ChatFilterScreenExtension {
     private static final int FILTER_X = 8;
     private static final int FILTER_Y = 8;
-    private static final int FILTER_WIDTH = 96;
+    private static final int FILTER_WIDTH = 64;
     private static final int FILTER_HEIGHT = 20;
     private static CustomChatScreen activeScreen;
     private static ChatFilterDropdownButton activeDropdown;
@@ -24,7 +24,18 @@ public final class ChatFilterScreenExtension {
     @SubscribeEvent
     public static void onScreenInit(ScreenEvent.Init.Post event) {
         if (!(event.getScreen() instanceof CustomChatScreen screen)) return;
+        boolean newlyOpened = activeScreen != screen;
         activeScreen = screen;
+        if (newlyOpened && ChatFilterSelection.current() != ChatFilter.ALL) {
+            ChatFilterSelection.clear();
+            ChatClientState.resetForFilter();
+            resetScreenView();
+            if (ChatClientState.beginInitialHistoryRequest()) {
+                ClientPacketDistributor.sendToServer(new RequestChatHistoryPayload(
+                        ChatClientState.activeHistoryRequestId(), Long.MAX_VALUE,
+                        ChatClientState.initialHistoryLimit(), ChatFilter.ALL));
+            }
+        }
         activeDropdown = new ChatFilterDropdownButton(
                 FILTER_X, FILTER_Y, FILTER_WIDTH, FILTER_HEIGHT, ChatFilterScreenExtension::selectFilter);
         event.addListener(activeDropdown);
