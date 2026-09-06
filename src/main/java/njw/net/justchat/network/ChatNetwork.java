@@ -20,6 +20,7 @@ import njw.net.justchat.server.ChatRateLimiter;
 import njw.net.justchat.server.ChatService;
 import njw.net.justchat.server.PendingItemTagManager;
 import njw.net.justchat.server.PlayerTagResolver;
+import njw.net.justchat.server.SystemMessageCapture;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -93,7 +94,8 @@ public final class ChatNetwork {
 
         ServerPlayer target = server.getPlayerList().getPlayer(targetUuid);
         if (target == null) {
-            player.sendSystemMessage(Component.translatable("message.njw_just_chat.whisper_target_offline"));
+            SystemMessageCapture.runWithoutPersistence(() ->
+                    player.sendSystemMessage(Component.translatable("message.njw_just_chat.whisper_target_offline")));
             sendWhisperTargets(player);
             return;
         }

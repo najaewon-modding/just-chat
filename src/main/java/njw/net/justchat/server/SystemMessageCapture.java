@@ -17,8 +17,20 @@ public final class SystemMessageCapture {
     private static final ThreadLocal<Deque<BroadcastContext>> BROADCAST_CONTEXT =
             ThreadLocal.withInitial(ArrayDeque::new);
     private static final ThreadLocal<TellrawContext> TELLRAW_CONTEXT = new ThreadLocal<>();
+    private static final ThreadLocal<Integer> PERSISTENCE_SUPPRESSION_DEPTH = ThreadLocal.withInitial(() -> 0);
 
     private SystemMessageCapture() {}
+
+    public static void runWithoutPersistence(Runnable action) {
+        int depth = PERSISTENCE_SUPPRESSION_DEPTH.get();
+        PERSISTENCE_SUPPRESSION_DEPTH.set(depth + 1);
+        try {
+            action.run();
+        } finally {
+            if (depth == 0) PERSISTENCE_SUPPRESSION_DEPTH.remove();
+            else PERSISTENCE_SUPPRESSION_DEPTH.set(depth);
+        }
+    }
 
     public static void beginBroadcast(MinecraftServer server, Component message, boolean overlay) {
         if (overlay) return;
@@ -44,7 +56,7 @@ public final class SystemMessageCapture {
     }
 
     public static void observe(ServerPlayer player, Component message, boolean overlay, boolean accepted) {
-        if (overlay) return;
+        if (overlay || PERSISTENCE_SUPPRESSION_DEPTH.get() > 0) return;
         MinecraftServer server = player.level().getServer();
         BroadcastContext broadcast = currentBroadcast(server);
         if (broadcast != null) {
