@@ -16,11 +16,8 @@ import java.util.List;
 public final class WhisperTargetDropdownButton extends AbstractWidget {
     private static final int ROW_HEIGHT = 20;
     private static final int MAX_VISIBLE_ROWS = 8;
-    private static final int BACKGROUND = 0xF0101010;
     private static final int BUTTON = 0xC84A4A4A;
     private static final int BUTTON_HOVERED = 0xCC666666;
-    private static final int ROW_SELECTED = 0xD03A3A3A;
-    private static final int ROW_HOVERED = 0xE0707070;
     private static final int TEXT = 0xFFFFFFFF;
 
     private List<WhisperTargetsPayload.Target> targets = List.of();
@@ -93,17 +90,13 @@ public final class WhisperTargetDropdownButton extends AbstractWidget {
         if (!open) return;
         int visibleRows = visibleRows();
         int top = dropdownTop();
-        graphics.fill(getX(), top, getX() + getWidth(), getY(), BACKGROUND);
 
         for (int row = 0; row < visibleRows; row++) {
             int absoluteIndex = scrollOffset + row;
             int rowY = top + row * ROW_HEIGHT;
-            if (isSelected(absoluteIndex)) {
-                graphics.fill(getX(), rowY, getX() + getWidth(), rowY + ROW_HEIGHT, ROW_SELECTED);
-            }
-            if (mouseX >= getX() && mouseX < getX() + getWidth() && mouseY >= rowY && mouseY < rowY + ROW_HEIGHT) {
-                graphics.fill(getX(), rowY, getX() + getWidth(), rowY + ROW_HEIGHT, ROW_HOVERED);
-            }
+            boolean hovered = mouseX >= getX() && mouseX < getX() + getWidth()
+                    && mouseY >= rowY && mouseY < rowY + ROW_HEIGHT;
+            graphics.fill(getX(), rowY, getX() + getWidth(), rowY + ROW_HEIGHT, hovered ? BUTTON_HOVERED : BUTTON);
             Component label = absoluteIndex == 0
                     ? Component.translatable("screen.njw_just_chat.target_all")
                     : Component.literal(targets.get(absoluteIndex - 1).name());
@@ -128,12 +121,6 @@ public final class WhisperTargetDropdownButton extends AbstractWidget {
     private boolean insideDropdown(double mouseX, double mouseY) {
         return mouseX >= getX() && mouseX < getX() + getWidth()
                 && mouseY >= dropdownTop() && mouseY < getY();
-    }
-
-    private boolean isSelected(int absoluteIndex) {
-        String selectedUuid = WhisperTargetSelection.targetUuid();
-        if (absoluteIndex == 0) return selectedUuid.isBlank();
-        return !selectedUuid.isBlank() && targets.get(absoluteIndex - 1).uuid().equals(selectedUuid);
     }
 
     private int dropdownIndexAt(double mouseX, double mouseY) {
