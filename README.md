@@ -3,17 +3,17 @@
 A persistent, feature-rich chat system that replaces Minecraft's default player chat.
 
 **Just Chat**은 Minecraft의 기본 플레이어 채팅을 확장하여 플레이어가 받은 채팅 메시지를 서버에 영구 저장하고,
-플레이어 태그, 아이템 태그, 읽음 상태, 과거 기록 탐색 등을 제공하는 NeoForge 모드입니다.
+귓속말, 플레이어 태그, 아이템 태그, 읽음 상태, 필터링된 기록 탐색 등을 제공하는 NeoForge 모드입니다.
 
 ## Compatibility
 
 * Minecraft **26.1.2**
 * NeoForge **26.1.2.97+**
-* Just Chat **1.0.2**
+* Just Chat **1.1.0-mc26.1.2**
 * Mod ID: `njw_just_chat`
 * Java **25**
 * Languages: **한국어 / English**
-* Network protocol: **5**
+* Network protocol: **7**
 
 멀티플레이에서는 클라이언트와 서버에 **동일한 버전의 Just Chat**을 설치하세요.
 
@@ -21,23 +21,43 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 
 ### Persistent message inbox
 
-* 플레이어 채팅과 일반 채팅 영역으로 전달되는 `overlay=false` 시스템 메시지를 서버 월드에 영구 저장합니다.
+* 플레이어가 실제로 전달받은 `overlay=false` 채팅/시스템 메시지를 서버 월드에 영구 저장합니다.
 * 전역 메시지는 모든 플레이어의 기록에서 확인할 수 있습니다.
-* 특정 플레이어에게만 전달된 메시지는 해당 플레이어의 기록에서만 확인할 수 있습니다.
-* `/tellraw @a`와 `/tellraw <target>`처럼 명시적인 대상에게 전달되는 메시지를 지원합니다.
-* 발전 과제와 datapack에서 생성한 메시지도 동일한 규칙으로 저장합니다.
+* 특정 플레이어에게 전달된 메시지는 해당 audience에 포함된 플레이어만 확인할 수 있습니다.
+* `/tellraw @a`, `/tellraw <target>` 및 datapack에서 생성한 tellraw 메시지를 지원합니다.
+* 발전 과제와 BlazeandCave's Advancements Pack 같은 datapack 메시지도 동일한 recipient-aware 규칙으로 저장합니다.
 * action bar 등 `overlay=true` 메시지는 저장하지 않습니다.
+* 명령어 오류와 `/tp`, `/give`, `/time` 등의 명령 실행 피드백은 화면에는 표시하지만 영구 기록에는 저장하지 않습니다.
 * 서버 재시작 후에도 이전 기록을 다시 불러올 수 있습니다.
 * 플레이어가 오프라인이었던 동안 생성된 전역 메시지도 나중에 확인할 수 있습니다.
 * 오래된 기록과 새로운 기록을 양방향으로 탐색할 수 있습니다.
-* 대량의 기록은 segment 단위로 관리합니다.
+* 대량의 기록은 segment 단위로 관리하며 보존 기간 제한은 두지 않습니다.
+
+### Chat filters
+
+Custom Chat 상단에서 다음 기록을 각각 확인할 수 있습니다.
+
+* **모든 채팅**: 현재 플레이어에게 보이는 전체 기록
+* **전체 대상**: 모든 플레이어를 대상으로 한 전역 메시지
+* **나에게만**: 귓속말을 제외하고 정확히 자신만 대상으로 한 메시지
+* **귓속말**: 자신이 받은 귓속말과 보낸 귓속말
+
+각 필터는 서버 측 history pagination을 사용하므로 최근에 로드된 메시지만 클라이언트에서 임시로 거르는 방식이 아닙니다.
+Custom Chat을 새로 열면 기본 필터는 항상 **모든 채팅**입니다.
+
+### Whisper
+
+* 하단 대상 dropdown에서 `전체에게` 또는 현재 온라인 플레이어를 선택할 수 있습니다.
+* 귓속말은 sender와 recipient에게만 저장되는 recipient-aware persistent message입니다.
+* 받은 귓속말 메시지를 클릭하면 해당 발신자를 바로 답장 대상으로 선택할 수 있습니다.
+* 선택한 상대가 전송 전에 오프라인이 되면 메시지는 전송/저장되지 않고 안내 후 대상이 `전체에게`로 초기화됩니다.
+* 긴 플레이어 이름은 dropdown에서 잘리지 않도록 hover 시 가로 marquee 애니메이션으로 확인할 수 있습니다.
 
 ### Message metadata
 
 * 영구 메시지에는 sender, audience, origin 정보를 함께 저장합니다.
 * audience는 전역 또는 특정 플레이어 집합으로 기록됩니다.
-* 현재 Custom Chat 화면은 이 메타데이터를 별도로 구분해서 표시하지 않습니다.
-* 저장된 메타데이터를 이용해 추후 전역/개인 메시지 표시 방식이나 필터를 확장할 수 있습니다.
+* origin을 이용해 player chat, vanilla broadcast, tellraw, direct system message, whisper 등을 구분합니다.
 
 ### Custom chat screen
 
@@ -47,6 +67,9 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 * 과거 기록을 보고 있을 때 새 메시지가 도착하면 알림을 표시합니다.
 * `↓` 버튼으로 최신 메시지로 빠르게 이동할 수 있습니다.
 * 플레이어 메시지는 `<PlayerName> 메시지` 형식으로 표시됩니다.
+* Custom Chat이 열려 있을 때 vanilla chat HUD는 숨기되 vanilla history 자체는 유지합니다.
+* 배경 blur는 사용하지 않고 화면 dim 효과만 적용합니다.
+* 다른 플레이어의 이름 위에 마우스를 올리면 pointing-hand cursor로 표시합니다.
 
 ### Player mentions
 
@@ -73,6 +96,7 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 * 플레이어별 마지막 읽은 메시지 위치를 서버에 저장합니다.
 * 읽지 않은 메시지가 있으면 읽음 경계를 표시합니다.
 * 재접속 후에도 읽음 상태를 이어서 사용할 수 있습니다.
+* 읽음 경계와 read-through 갱신은 기본 **모든 채팅** view를 기준으로 처리합니다.
 
 ### Client configuration
 
@@ -81,6 +105,7 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 * **Close chat after sending**
 
   * 메시지 전송 후 채팅 화면을 자동으로 닫을지 설정합니다.
+  * 신규 기본값은 `false`입니다.
 
 ### Server-side protection
 
@@ -92,14 +117,14 @@ A persistent, feature-rich chat system that replaces Minecraft's default player 
 ## Installation
 
 1. Minecraft **26.1.2**와 NeoForge **26.1.2.97 이상**을 설치합니다.
-2. GitHub Releases에서 `njw_just_chat-1.0.2.jar`를 다운로드합니다.
+2. GitHub Releases에서 `njw_just_chat-1.1.0-mc26.1.2.jar`를 다운로드합니다.
 3. JAR 파일을 클라이언트의 `mods` 폴더에 넣습니다.
 4. 멀티플레이 서버에서는 서버의 `mods` 폴더에도 동일한 JAR 파일을 넣습니다.
 5. Minecraft를 실행합니다.
 
 > GitHub가 자동으로 제공하는 `Source code (zip)`과 `Source code (tar.gz)`는 설치용 모드 파일이 아닙니다.
 >
-> Release의 **Assets**에 첨부된 `njw_just_chat-1.0.2.jar`를 사용하세요.
+> Release의 **Assets**에 첨부된 `njw_just_chat-1.1.0-mc26.1.2.jar`를 사용하세요.
 
 ## Usage
 
@@ -116,6 +141,11 @@ Just Chat 화면에서는 `/`로 시작하는 메시지를 일반 채팅으로 �
 ```text
 <PlayerName> 안녕하세요!
 ```
+
+### Whisper
+
+입력창 왼쪽 대상 dropdown에서 온라인 플레이어를 선택한 뒤 메시지를 전송합니다.
+받은 귓속말을 클릭하면 해당 플레이어를 답장 대상으로 바로 선택할 수 있습니다.
 
 ### Player tag
 
