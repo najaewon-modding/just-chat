@@ -55,7 +55,7 @@ public final class CustomChatScreen extends Screen {
     private static final int DELETE_RIGHT_MARGIN = 8;
     private static final int JUMP_BUTTON_SIZE = 20;
     private static final int JUMP_BUTTON_RIGHT_MARGIN = 8;
-    private static final int JUMP_BUTTON_GAP = 4;
+    private static final int JUMP_BUTTON_GAP = INPUT_GAP;
     private static final long NEW_MESSAGE_NOTICE_MILLIS = 5000L;
     private static final int DEFAULT_NOTICE_COLOR = 0xFFAAAAAA;
     private static final int COMMAND_NOTICE_COLOR = 0xFFFFAA00;
@@ -964,7 +964,8 @@ public final class CustomChatScreen extends Screen {
     }
 
     private int getJumpButtonY() {
-        return this.height - MESSAGE_BOTTOM_OFFSET - JUMP_BUTTON_SIZE - JUMP_BUTTON_GAP;
+        int itemButtonY = this.height - INPUT_HEIGHT - INPUT_BOTTOM_MARGIN;
+        return itemButtonY - JUMP_BUTTON_GAP - JUMP_BUTTON_SIZE;
     }
 
     private int getMaxScrollOffset(List<RenderRow> rows) {
