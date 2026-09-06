@@ -9,4 +9,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface CustomChatScreenAccessor {
     @Accessor("messageInput")
     EditBox njwJustChat$messageInput();
+
+    @Accessor("scrollOffset")
+    int njwJustChat$scrollOffset();
 }
