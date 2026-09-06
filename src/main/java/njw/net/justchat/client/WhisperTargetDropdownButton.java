@@ -153,6 +153,6 @@ public final class WhisperTargetDropdownButton extends AbstractWidget {
         String targetName = WhisperTargetSelection.targetName();
         return targetName.isBlank()
                 ? Component.translatable("screen.njw_just_chat.target_all")
-                : Component.translatable("screen.njw_just_chat.target_player", targetName);
+                : Component.literal(targetName);
     }
 }
