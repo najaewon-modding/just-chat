@@ -126,7 +126,7 @@ public final class WhisperTargetDropdownButton extends AbstractWidget {
         var font = Minecraft.getInstance().font;
         int textWidth = font.width(text);
         int availableWidth = Math.max(1, getWidth() - TEXT_PADDING * 2);
-        int y = top + (height - font.lineHeight) / 2;
+        int y = top + (height - font.lineHeight) / 2 + 1;
         if (textWidth <= availableWidth) {
             int x = getX() + (getWidth() - textWidth) / 2;
             graphics.text(font, text, x, y, TEXT, false);
@@ -158,16 +158,12 @@ public final class WhisperTargetDropdownButton extends AbstractWidget {
     private int marqueeOffset(int overflow) {
         if (overflow <= 0) return 0;
         double travelMillis = overflow * 1000.0 / MARQUEE_SPEED_PIXELS_PER_SECOND;
-        double cycle = MARQUEE_PAUSE_MILLIS * 3.0 + travelMillis * 2.0;
+        double cycle = MARQUEE_PAUSE_MILLIS * 2.0 + travelMillis;
         double phase = (System.currentTimeMillis() - hoveredMarqueeStartedAt) % cycle;
         if (phase < MARQUEE_PAUSE_MILLIS) return 0;
         phase -= MARQUEE_PAUSE_MILLIS;
         if (phase < travelMillis) return (int) Math.round(overflow * phase / travelMillis);
-        phase -= travelMillis;
-        if (phase < MARQUEE_PAUSE_MILLIS) return overflow;
-        phase -= MARQUEE_PAUSE_MILLIS;
-        if (phase < travelMillis) return (int) Math.round(overflow * (1.0 - phase / travelMillis));
-        return 0;
+        return overflow;
     }
 
     private boolean insideButton(double mouseX, double mouseY) {

@@ -12,4 +12,22 @@ public interface CustomChatScreenAccessor {
 
     @Accessor("scrollOffset")
     int njwJustChat$scrollOffset();
+
+    @Accessor("scrollOffset")
+    void njwJustChat$setScrollOffset(int value);
+
+    @Accessor("historyAnchorId")
+    void njwJustChat$setHistoryAnchorId(long value);
+
+    @Accessor("historyAnchorLineIndex")
+    void njwJustChat$setHistoryAnchorLineIndex(int value);
+
+    @Accessor("jumpingToLatest")
+    void njwJustChat$setJumpingToLatest(boolean value);
+
+    @Accessor("hasUnseenLiveMessages")
+    void njwJustChat$setHasUnseenLiveMessages(boolean value);
+
+    @Accessor("newMessageNoticeUntil")
+    void njwJustChat$setNewMessageNoticeUntil(long value);
 }

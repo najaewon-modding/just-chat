@@ -3,6 +3,7 @@ package njw.net.justchat.server;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import njw.net.justchat.data.ChatEntry;
+import njw.net.justchat.data.ChatFilter;
 import njw.net.justchat.data.ChatSavedData;
 import njw.net.justchat.data.ItemTag;
 import njw.net.justchat.data.PlayerTag;
@@ -52,12 +53,12 @@ public final class ChatService {
         return deleted;
     }
 
-    public ChatSavedData.HistoryBatch historyBefore(long beforeId, int limit, UUID viewerUuid) {
-        return data.getHistoryBefore(beforeId, limit, viewerUuid);
+    public ChatSavedData.HistoryBatch historyBefore(long beforeId, int limit, UUID viewerUuid, ChatFilter filter) {
+        return data.getHistoryBefore(beforeId, limit, viewerUuid, filter);
     }
 
-    public ChatSavedData.HistoryBatch historyAfter(long afterId, int limit, UUID viewerUuid) {
-        return data.getHistoryAfter(afterId, limit, viewerUuid);
+    public ChatSavedData.HistoryBatch historyAfter(long afterId, int limit, UUID viewerUuid, ChatFilter filter) {
+        return data.getHistoryAfter(afterId, limit, viewerUuid, filter);
     }
 
     public long latestPersistentId(UUID viewerUuid) {

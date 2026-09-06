@@ -2,12 +2,15 @@ package njw.net.justchat.client;
 
 import net.minecraft.network.chat.Component;
 import njw.net.justchat.data.ChatEntry;
+import njw.net.justchat.data.ChatFilter;
+import njw.net.justchat.network.ChatFilterSelection;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.UUID;
 
 public final class ChatClientState {
     private static final long HISTORY_REQUEST_TIMEOUT_NANOS = 5_000_000_000L;
@@ -32,7 +35,12 @@ public final class ChatClientState {
 
     private ChatClientState() {}
 
-    public static boolean addPersistent(ChatEntry entry) {
+    public static boolean matchesActiveFilter(ChatEntry entry, UUID viewerUuid) {
+        return ChatFilterSelection.current().matches(entry, viewerUuid);
+    }
+
+    public static boolean addPersistent(ChatEntry entry, UUID viewerUuid) {
+        if (!matchesActiveFilter(entry, viewerUuid)) return false;
         boolean existed = PERSISTENT.containsKey(entry.id());
         if (!existed && !shouldAcceptNewPersistent(entry.id())) return false;
         PERSISTENT.put(entry.id(), ChatClientEntry.persistent(entry));
@@ -42,10 +50,24 @@ public final class ChatClientState {
     }
 
     public static void addVanilla(Component message, long createdAt) {
-        if (hasNewerHistory) return;
+        if (ChatFilterSelection.current() == ChatFilter.ALL && hasNewerHistory) return;
         VANILLA.add(ChatClientEntry.vanilla(message.copy(), createdAt));
         VANILLA.sort(Comparator.comparingLong(ChatClientEntry::createdAt));
         while (VANILLA.size() > MAX_VANILLA_ENTRIES) VANILLA.removeFirst();
+        rebuildView();
+    }
+
+    public static void resetForFilter() {
+        PERSISTENT.clear();
+        historyInitialized = false;
+        historyLoading = false;
+        hasOlderHistory = true;
+        hasNewerHistory = false;
+        unseenNewerWhileLoading = false;
+        historyRequestTimedOut = false;
+        historyRequestStartedAtNanos = 0L;
+        activeHistoryRequestId = 0L;
+        historyDirection = HistoryDirection.NONE;
         rebuildView();
     }
 
@@ -159,6 +181,7 @@ public final class ChatClientState {
         nextHistoryRequestId = 1L;
         activeHistoryRequestId = 0L;
         historyDirection = HistoryDirection.NONE;
+        ChatFilterSelection.clear();
     }
 
     private static void startHistoryRequest(HistoryDirection direction) {
@@ -222,6 +245,7 @@ public final class ChatClientState {
     private static void rebuildView() {
         VIEW.clear();
         VIEW.addAll(PERSISTENT.values());
+        if (ChatFilterSelection.current() != ChatFilter.ALL) return;
         for (ChatClientEntry entry : VANILLA) {
             int index = VIEW.size();
             while (index > 0 && VIEW.get(index - 1).createdAt() > entry.createdAt()) index--;

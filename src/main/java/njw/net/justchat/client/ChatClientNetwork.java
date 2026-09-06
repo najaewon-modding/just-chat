@@ -18,6 +18,8 @@ import njw.net.justchat.network.PlayerSuggestionsPayload;
 import njw.net.justchat.network.WhisperTargetSelection;
 import njw.net.justchat.network.WhisperTargetsPayload;
 
+import java.util.UUID;
+
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
 public final class ChatClientNetwork {
     private ChatClientNetwork() {}
@@ -37,6 +39,7 @@ public final class ChatClientNetwork {
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         VanillaChatBridge.clear();
         WhisperTargetScreenExtension.clear();
+        ChatFilterScreenExtension.clear();
         ChatClientState.clear();
         ChatReadClientState.clear();
         PlayerPresenceClientState.clear();
@@ -46,19 +49,20 @@ public final class ChatClientNetwork {
         ChatEntry entry = payload.entry();
         Minecraft minecraft = Minecraft.getInstance();
         CustomChatScreen screen = minecraft.screen instanceof CustomChatScreen current ? current : null;
-        boolean ownMessage = entry.isPlayer() && minecraft.player != null
-                && minecraft.player.getUUID().equals(entry.sender().uuid());
+        UUID viewerUuid = minecraft.player == null ? null : minecraft.player.getUUID();
+        boolean visibleInFilter = ChatClientState.matchesActiveFilter(entry, viewerUuid);
+        boolean ownMessage = entry.isPlayer() && viewerUuid != null && viewerUuid.equals(entry.sender().uuid());
 
-        if (screen != null) screen.beforeLivePersistentMessage(ownMessage);
-        boolean isNew = ChatClientState.addPersistent(entry);
+        if (screen != null && visibleInFilter) screen.beforeLivePersistentMessage(ownMessage);
+        boolean isNew = visibleInFilter && ChatClientState.addPersistent(entry, viewerUuid);
         if (entry.isPlayer()) {
             PlayerPresenceClientState.requestForEntry(entry);
             ChatMessage message = entry.chatMessage();
             if (message != null) MentionNotifier.notifyIfMentioned(message);
         }
-        if (screen != null) screen.afterLivePersistentMessage(entry.id());
-        if (!isNew || !entry.isPlayer()) return;
-        VanillaChatBridge.publishPlayerEntry(entry, screen != null);
+        if (screen != null && visibleInFilter) screen.afterLivePersistentMessage(entry.id());
+        if (!entry.isPlayer() || entry.deleted()) return;
+        if (!visibleInFilter || isNew) VanillaChatBridge.publishPlayerEntry(entry, screen != null);
     }
 
     private static void handleChatHistory(ChatHistoryPayload payload, IPayloadContext context) {

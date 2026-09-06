@@ -5,11 +5,13 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
+import njw.net.justchat.data.ChatFilter;
 
 public record RequestNewerChatHistoryPayload(
         long requestId,
         long afterId,
-        int limit
+        int limit,
+        ChatFilter filter
 ) implements CustomPacketPayload {
     public static final int DEFAULT_LIMIT = 100;
     public static final Type<RequestNewerChatHistoryPayload> TYPE =
@@ -18,8 +20,17 @@ public record RequestNewerChatHistoryPayload(
             ByteBufCodecs.VAR_LONG, RequestNewerChatHistoryPayload::requestId,
             ByteBufCodecs.VAR_LONG, RequestNewerChatHistoryPayload::afterId,
             ByteBufCodecs.VAR_INT, RequestNewerChatHistoryPayload::limit,
+            ChatFilter.STREAM_CODEC, RequestNewerChatHistoryPayload::filter,
             RequestNewerChatHistoryPayload::new
     );
+
+    public RequestNewerChatHistoryPayload {
+        filter = filter == null ? ChatFilter.ALL : filter;
+    }
+
+    public RequestNewerChatHistoryPayload(long requestId, long afterId, int limit) {
+        this(requestId, afterId, limit, ChatFilterSelection.current());
+    }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

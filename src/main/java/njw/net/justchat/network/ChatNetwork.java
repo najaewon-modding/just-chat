@@ -33,7 +33,7 @@ public final class ChatNetwork {
 
     @SubscribeEvent
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("6");
+        PayloadRegistrar registrar = event.registrar("7");
         registrar.playToServer(SendChatPayload.TYPE, SendChatPayload.STREAM_CODEC, ChatNetwork::handleSendChat);
         registrar.playToServer(DeleteChatPayload.TYPE, DeleteChatPayload.STREAM_CODEC, ChatNetwork::handleDeleteChat);
         registrar.playToServer(RequestChatHistoryPayload.TYPE, RequestChatHistoryPayload.STREAM_CODEC,
@@ -123,7 +123,7 @@ public final class ChatNetwork {
         if (!(context.player() instanceof ServerPlayer player)) return;
         if (!ChatRateLimiter.allow(player, ChatRateLimiter.Action.HISTORY)) return;
         ChatSavedData.HistoryBatch history = ChatService.of(player.level().getServer()).historyBefore(
-                payload.beforeId(), payload.limit(), player.getUUID());
+                payload.beforeId(), payload.limit(), player.getUUID(), payload.filter());
         PacketDistributor.sendToPlayer(player,
                 new ChatHistoryPayload(payload.requestId(), history.entries(), history.hasMore()));
     }
@@ -132,7 +132,7 @@ public final class ChatNetwork {
         if (!(context.player() instanceof ServerPlayer player)) return;
         if (!ChatRateLimiter.allow(player, ChatRateLimiter.Action.HISTORY)) return;
         ChatSavedData.HistoryBatch history = ChatService.of(player.level().getServer()).historyAfter(
-                payload.afterId(), payload.limit(), player.getUUID());
+                payload.afterId(), payload.limit(), player.getUUID(), payload.filter());
         PacketDistributor.sendToPlayer(player,
                 new ChatHistoryPayload(payload.requestId(), history.entries(), history.hasMore()));
     }

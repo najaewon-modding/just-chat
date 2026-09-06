@@ -60,23 +60,23 @@ public final class ChatSegmentSavedData extends SavedData {
         return deleted;
     }
 
-    public List<ChatEntry> getHistoryBefore(long beforeId, int limit, UUID viewerUuid) {
+    public List<ChatEntry> getHistoryBefore(long beforeId, int limit, UUID viewerUuid, ChatFilter filter) {
         int index = lowerBound(beforeId) - 1;
         List<ChatEntry> result = new ArrayList<>(Math.max(1, limit));
         while (index >= 0 && result.size() < limit) {
             ChatEntry entry = entries.get(index--);
-            if (entry.isVisibleTo(viewerUuid)) result.add(entry);
+            if (filter.matches(entry, viewerUuid)) result.add(entry);
         }
         result.sort(Comparator.comparingLong(ChatEntry::id));
         return List.copyOf(result);
     }
 
-    public List<ChatEntry> getHistoryAfter(long afterId, int limit, UUID viewerUuid) {
+    public List<ChatEntry> getHistoryAfter(long afterId, int limit, UUID viewerUuid, ChatFilter filter) {
         int index = upperBound(afterId);
         List<ChatEntry> result = new ArrayList<>(Math.max(1, limit));
         while (index < entries.size() && result.size() < limit) {
             ChatEntry entry = entries.get(index++);
-            if (entry.isVisibleTo(viewerUuid)) result.add(entry);
+            if (filter.matches(entry, viewerUuid)) result.add(entry);
         }
         return List.copyOf(result);
     }

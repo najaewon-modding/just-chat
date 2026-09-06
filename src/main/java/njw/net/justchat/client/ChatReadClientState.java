@@ -1,5 +1,8 @@
 package njw.net.justchat.client;
 
+import njw.net.justchat.data.ChatFilter;
+import njw.net.justchat.network.ChatFilterSelection;
+
 public final class ChatReadClientState {
     private static boolean initialized;
     private static boolean boundaryPending;
@@ -29,7 +32,7 @@ public final class ChatReadClientState {
     }
 
     public static void markSeen(long messageId) {
-        if (messageId < 0L) return;
+        if (ChatFilterSelection.current() != ChatFilter.ALL || messageId < 0L) return;
         sessionReadMessageId = Math.max(sessionReadMessageId, messageId);
     }
 
@@ -38,7 +41,7 @@ public final class ChatReadClientState {
     }
 
     public static boolean readBoundaryVisible() {
-        return initialized && !boundaryPending;
+        return ChatFilterSelection.current() == ChatFilter.ALL && initialized && !boundaryPending;
     }
 
     public static long readBoundaryMessageId() {

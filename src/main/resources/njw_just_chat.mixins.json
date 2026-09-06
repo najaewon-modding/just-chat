@@ -12,6 +12,7 @@
   "client": [
     "CustomChatScreenAccessor",
     "CustomChatScreenBackgroundMixin",
+    "CustomChatScreenFilterLayoutMixin",
     "MinecraftMixin"
   ],
   "injectors": {

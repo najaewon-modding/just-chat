@@ -24,7 +24,7 @@ public final class WhisperTargetScreenExtension {
     private static final int MESSAGE_LINE_HEIGHT = 12;
     private static final int DATE_LINE_HEIGHT = 14;
     private static final int READ_BOUNDARY_LINE_HEIGHT = 14;
-    private static final int MESSAGE_TOP = 8;
+    private static final int MESSAGE_TOP = 36;
     private static final int MESSAGE_BOTTOM_OFFSET = 58;
     private static final int MESSAGE_LEFT = 8;
     private static final int DELETE_RIGHT_MARGIN = 8;

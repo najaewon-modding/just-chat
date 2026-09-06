@@ -75,7 +75,7 @@ public final class ChatSavedData {
         return 0L;
     }
 
-    public HistoryBatch getHistoryBefore(long beforeId, int limit, UUID viewerUuid) {
+    public HistoryBatch getHistoryBefore(long beforeId, int limit, UUID viewerUuid, ChatFilter filter) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
         int requested = safeLimit + 1;
         List<ChatEntry> result = new ArrayList<>(requested);
@@ -85,7 +85,7 @@ public final class ChatSavedData {
             ChatIndexSavedData.SegmentInfo info = segments.get(i);
             if (info.entryCount() == 0 || info.firstMessageId() >= beforeId) continue;
             result.addAll(ChatSegmentSavedData.get(server, info.segmentId()).getHistoryBefore(
-                    beforeId, requested - result.size(), viewerUuid));
+                    beforeId, requested - result.size(), viewerUuid, filter));
         }
 
         result.sort(Comparator.comparingLong(ChatEntry::id));
@@ -94,7 +94,7 @@ public final class ChatSavedData {
         return new HistoryBatch(List.copyOf(result), hasMore);
     }
 
-    public HistoryBatch getHistoryAfter(long afterId, int limit, UUID viewerUuid) {
+    public HistoryBatch getHistoryAfter(long afterId, int limit, UUID viewerUuid, ChatFilter filter) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
         int requested = safeLimit + 1;
         List<ChatEntry> result = new ArrayList<>(requested);
@@ -104,7 +104,7 @@ public final class ChatSavedData {
             if (result.size() >= requested) break;
             if (info.entryCount() == 0 || info.lastMessageId() <= afterId) continue;
             result.addAll(ChatSegmentSavedData.get(server, info.segmentId()).getHistoryAfter(
-                    afterId, requested - result.size(), viewerUuid));
+                    afterId, requested - result.size(), viewerUuid, filter));
         }
 
         result.sort(Comparator.comparingLong(ChatEntry::id));
