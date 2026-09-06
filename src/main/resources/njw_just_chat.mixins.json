@@ -10,6 +10,7 @@
   ],
   "client": [
     "CustomChatScreenAccessor",
+    "CustomChatScreenBackgroundMixin",
     "MinecraftMixin"
   ],
   "injectors": {
