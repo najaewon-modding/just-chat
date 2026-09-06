@@ -15,6 +15,7 @@ import njw.net.justchat.network.ItemTagCreatedPayload;
 import njw.net.justchat.network.NewChatPayload;
 import njw.net.justchat.network.PlayerPresencePayload;
 import njw.net.justchat.network.PlayerSuggestionsPayload;
+import njw.net.justchat.network.WhisperTargetSelection;
 import njw.net.justchat.network.WhisperTargetsPayload;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
@@ -84,6 +85,11 @@ public final class ChatClientNetwork {
     }
 
     private static void handleWhisperTargets(WhisperTargetsPayload payload, IPayloadContext context) {
+        String selectedUuid = WhisperTargetSelection.targetUuid();
+        if (!selectedUuid.isBlank()
+                && payload.targets().stream().noneMatch(target -> target.uuid().equals(selectedUuid))) {
+            WhisperTargetSelection.clear();
+        }
         WhisperTargetScreenExtension.updateTargets(payload.targets());
     }
 

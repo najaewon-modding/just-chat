@@ -94,6 +94,7 @@ public final class ChatNetwork {
         ServerPlayer target = server.getPlayerList().getPlayer(targetUuid);
         if (target == null) {
             player.sendSystemMessage(Component.translatable("message.njw_just_chat.whisper_target_offline"));
+            sendWhisperTargets(player);
             return;
         }
 
@@ -162,6 +163,10 @@ public final class ChatNetwork {
     private static void handleWhisperTargets(RequestWhisperTargetsPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         if (!ChatRateLimiter.allow(player, ChatRateLimiter.Action.SUGGESTIONS)) return;
+        sendWhisperTargets(player);
+    }
+
+    private static void sendWhisperTargets(ServerPlayer player) {
         List<WhisperTargetsPayload.Target> targets = player.level().getServer().getPlayerList().getPlayers().stream()
                 .filter(target -> !target.getUUID().equals(player.getUUID()))
                 .sorted(Comparator.comparing(target -> target.getName().getString(), String.CASE_INSENSITIVE_ORDER))
