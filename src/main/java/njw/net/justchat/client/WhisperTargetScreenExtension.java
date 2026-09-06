@@ -13,7 +13,7 @@ import java.util.List;
 
 @EventBusSubscriber(modid = "njw_just_chat", value = Dist.CLIENT)
 public final class WhisperTargetScreenExtension {
-    private static final int TARGET_WIDTH = 96;
+    private static final int TARGET_WIDTH = 64;
     private static final int GAP = 4;
     private static CustomChatScreen activeScreen;
     private static WhisperTargetDropdownButton activeDropdown;
