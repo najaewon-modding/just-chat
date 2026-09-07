@@ -170,3 +170,7 @@ Just Chat의 persistent message inbox 기능을 사용하려면 서버와 클라
 Just Chat을 설치해야 합니다.
 
 클라이언트와 서버의 Just Chat 버전은 동일하게 유지하는 것을 권장합니다.
+
+## License
+
+MIT
